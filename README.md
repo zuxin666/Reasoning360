@@ -1,3 +1,36 @@
+# Reasoning360
+
+The repo is an attempt to replicate the large-scale RL training of [DeepSeek R1](https://github.com/deepseek-ai/DeepSeek-R1).
+
+It's initialized from [verl](https://github.com/volcengine/verl). verl's README is appended below.
+
+## Setup
+Check the guide of verl to setup the environment.
+
+## Usage (conda)
+First export the conda binary path (can check with `which python` and `which ray`):
+```
+export CONDA_BIN_PATH=/path/to/conda/bin/
+```
+
+Single node, 8-H100 GPUs:
+```bash
+bash scripts/template-singlenode-mathgsm8k-qwen2.5_math_3b.sh
+```
+
+Multi-node using slurm:
+```bash
+sbatch scripts/template-multinode-math-dsr1_distill_qwen_14b.sh
+```
+
+The single-node script directly prints log in the terminal; the multi-node script prints log in the slurm log (`.out` and `.err`) files. Check wandb for the experiment logs.
+
+Adjust the template script to fit your needs.
+
+## Usage (docker)
+TODO
+
+---
 <h1 style="text-align: center;">verl: Volcano Engine Reinforcement Learning for LLM</h1>
 
 verl is a flexible, efficient and production-ready RL training library for large language models (LLMs).
@@ -123,6 +156,5 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [TinyZero](https://github.com/Jiayi-Pan/TinyZero): a reproduction of DeepSeek R1 Zero recipe for reasoning tasks
 - [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning agent training framework
 - [Logic R1](https://github.com/Unakar/Logic-RL): a reproduced DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
-- [deepscaler](https://github.com/agentica-project/deepscaler): iterative context scaling with GRPO
 
 We are HIRING! Send us an [email](mailto:haibin.lin@bytedance.com) if you are interested in internship/FTE opportunities in MLSys/LLM reasoning/multimodal alignment.
