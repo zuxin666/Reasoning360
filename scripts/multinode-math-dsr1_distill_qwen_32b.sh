@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=rl
 #SBATCH --partition=mbzuai
-#SBATCH --nodes=4
-#SBATCH --ntasks=4
+#SBATCH --nodes=16
+#SBATCH --ntasks=16
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=96
@@ -10,6 +10,7 @@
 #SBATCH --output=slurm/verl-%j.out
 #SBATCH --error=slurm/verl-%j.err
 #SBATCH --exclusive
+#SBATCH --exclude=g42-odin-h100-[010,033,037,049,056,063,105,156,177-178,191,194,200,226-227,231]
 #SBATCH --time=12:00:00
 
 nodes=( $( scontrol show hostnames $SLURM_JOB_NODELIST ) )
@@ -25,7 +26,7 @@ math_train_path=${DATA_DIR}/math/train.parquet
 math_test_path=${DATA_DIR}/math/test.parquet
 train_files="['$math_train_path']"
 test_files="['$math_test_path']"
-BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
+BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 
 WANDB_PROJECT=Reasoning360
 WANDB_EXPERIMENT_NAME=math-${BASE_MODEL##*/}
@@ -99,5 +100,5 @@ done
     +trainer.val_before_train=False \
     trainer.nnodes=$worker_num \
     trainer.save_freq=5 \
-    trainer.test_freq=5 \
-    trainer.total_epochs=10
+    trainer.test_freq=2 \
+    trainer.total_epochs=50
