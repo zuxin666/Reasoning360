@@ -83,6 +83,8 @@ verl is fast with:
 ## Upcoming Features
 - Reward model training
 - DPO training
+- DeepSeek integration with Megatron backend
+- SGLang integration
 
 ## Getting Started
 
@@ -91,6 +93,7 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
 **Quickstart:**
 - [Installation](https://verl.readthedocs.io/en/latest/start/install.html)
 - [Quickstart](https://verl.readthedocs.io/en/latest/start/quickstart.html)
+- [Programming Guide](https://verl.readthedocs.io/en/latest/hybrid_flow.html)
 
 **Running a PPO example step-by-step:**
 - Data and Reward Preparation
@@ -118,6 +121,9 @@ Checkout this [Jupyter Notebook](https://github.com/volcengine/verl/tree/main/ex
 
 ## Performance Tuning Guide
 The performance is essential for on-policy RL algorithm. We write a detailed performance tuning guide to allow people tune the performance. See [here](https://verl.readthedocs.io/en/latest/perf/perf_tuning.html) for more details.
+
+## vLLM v0.7 testing version
+We have released a testing version of veRL that supports vLLM>=0.7.0. Please refer to [this document](https://github.com/volcengine/verl/docs/README_vllm0.7.md) for installation guide and more information.
 
 ## Contribution Guide
 Contributions from the community are welcome!
@@ -156,5 +162,7 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [TinyZero](https://github.com/Jiayi-Pan/TinyZero): a reproduction of DeepSeek R1 Zero recipe for reasoning tasks
 - [RAGEN](https://github.com/ZihanWang314/ragen): a general-purpose reasoning agent training framework
 - [Logic R1](https://github.com/Unakar/Logic-RL): a reproduced DeepSeek R1 Zero on 2K Tiny Logic Puzzle Dataset.
+- [deepscaler](https://github.com/agentica-project/deepscaler): iterative context scaling with GRPO
+- [critic-rl](https://github.com/HKUNLP/critic-rl): Teaching Language Models to Critique via Reinforcement Learning
 
 We are HIRING! Send us an [email](mailto:haibin.lin@bytedance.com) if you are interested in internship/FTE opportunities in MLSys/LLM reasoning/multimodal alignment.
