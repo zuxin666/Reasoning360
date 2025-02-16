@@ -123,3 +123,6 @@ sandbox/
 
 # data
 data
+
+# docker
+docker/images/
