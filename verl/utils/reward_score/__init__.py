@@ -42,17 +42,22 @@ def _default_compute_score(data_source, solution_str, ground_truth):
 
         res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
     elif data_source in [
+        "agentica-org/DeepScaleR-Preview-Dataset",
         "nanoverl/math",
         "nanoverl/aime",
         "nanoverl/amc",
         "nanoverl/minerva",
         "nanoverl/olympiad_bench",
-        "agentica-org/DeepScaleR-Preview-Dataset",
     ]:
-        from . import prime_math
+        # from . import prime_math
 
         # only take the accuracy reward
-        res = prime_math.compute_score(solution_str, ground_truth)[0]
+        # res = prime_math.compute_score(solution_str, ground_truth)[0]
+        from .math_hf import MathReward
+
+        res = MathReward(reward_fn_names=["accuracy"]).compute_score(
+            solution_str, ground_truth
+        )
     else:
         raise NotImplementedError
 
