@@ -29,9 +29,9 @@ math_train_path=${DATA_DIR}/math/train.parquet
 math_test_path=${DATA_DIR}/math/test.parquet
 train_files="['$math_train_path']"
 test_files="['$math_test_path']"
-BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+# BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Llama-70B
-# BASE_MODEL=meta-llama/Llama-3.3-70B-Instruct
+BASE_MODEL=meta-llama/Llama-3.3-70B-Instruct
 # BASE_MODEL=meta-llama/Meta-Llama-3-8B-Instruct
 
 
@@ -103,6 +103,6 @@ full_cmd="ray start --address "$address_head" \
 srun --overlap --container-image=$IMAGE_PATH --container-mounts="${WORKING_DIR}:/Reasoning360" --nodes=1 --ntasks=1 -w "$head_node" --export=ALL,VLLM_ATTENTION_BACKEND=XFORMERS,PYTHONPATH=/Reasoning360:\$PYTHONPATH \
     ray status
 srun --overlap --container-image=$IMAGE_PATH --container-mounts="${WORKING_DIR}:/Reasoning360" --nodes=1 --ntasks=1 -w "$node_i" --export=ALL,VLLM_ATTENTION_BACKEND=XFORMERS,PYTHONPATH=/Reasoning360:\$PYTHONPATH \
-    bash -c "export PYTHONPATH=/Reasoning360:\$PYTHONPATH && cd /Reasoning360/ && pip install -r requirements.txt && pip install -e . && $full_cmd" 
+    bash -c "export PYTHONPATH=/Reasoning360:\$PYTHONPATH && cd /Reasoning360/ && pip install -e . && $full_cmd" 
 
 
