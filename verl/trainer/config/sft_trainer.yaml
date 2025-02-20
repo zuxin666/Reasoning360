@@ -6,8 +6,11 @@ data:
   val_files: ~/data/gsm8k/test.parquet
   prompt_key: question
   response_key: answer
-  max_length: 1024
-  truncation: error
+  # max_length: 1024 # qwen2.5-0.5b on gsm8k
+  # max_length: 10240 # qwen2.5-7b on limo
+  # max_length: 16384 # qwen2.5-7b on limo
+  max_length: 16384 # qwen2.5-32b on limo
+  truncation: right
   balance_dp_token: False
   chat_template: null
 model:

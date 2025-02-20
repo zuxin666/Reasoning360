@@ -114,11 +114,18 @@ class SFTDataset(Dataset):
         response = self.responses[item]
 
         # apply chat template
-        prompt_chat = [{'role': 'user', 'content': prompt}]
+        system_prompt = "Please reason step by step, and put your final answer within \\boxed{}."
+        prompt_chat = [
+            {"role": "system", "content": system_prompt},
+            {'role': 'user', 'content': prompt}
+            ]
 
         # string
         prompt_chat_str = tokenizer.apply_chat_template(prompt_chat, add_generation_prompt=True, tokenize=False)
-        response_chat_str = response + tokenizer.eos_token
+        # response_chat_str = response + tokenizer.eos_token # TODO: eos_token is <|im_end|>, should be <|endoftext|>
+        response_chat_str = response + tokenizer.pad_token # TODO: eos_token is <|im_end|>, should be <|endoftext|>
+        
+        # print(f'prompt_chat_str={prompt_chat_str}')
 
         # tokenize
         prompt_ids_output = tokenizer(prompt_chat_str, return_tensors='pt', add_special_tokens=False)
