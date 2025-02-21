@@ -137,4 +137,3 @@ srun --overlap --container-image=$IMAGE_PATH --container-mounts="${WORKING_DIR}:
 srun --overlap --container-image=$IMAGE_PATH --container-mounts="${WORKING_DIR}:/Reasoning360" --nodes=1 --ntasks=1 -w "$node_i" --export=ALL,VLLM_ATTENTION_BACKEND=XFORMERS,PYTHONPATH=/Reasoning360:\$PYTHONPATH \
     bash -c "export PYTHONPATH=/Reasoning360:\$PYTHONPATH && cd /Reasoning360/ && pip install -e . && $full_cmd" 
 
-
