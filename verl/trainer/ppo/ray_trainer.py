@@ -462,11 +462,12 @@ class RayPPOTrainer(object):
     def _create_dataloader(self):
         from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
         # TODO: we have to make sure the batch size is divisible by the dp size
+        # SHIBO: Some of the arguments are not used.
         self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
                                          prompt_key=self.config.data.prompt_key,
                                          max_prompt_length=self.config.data.max_prompt_length,
-                                         filter_prompts=True,
+                                         # filter_prompts=True,
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
                                          truncation='error')
         # use sampler for better ckpt resume
