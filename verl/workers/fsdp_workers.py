@@ -118,6 +118,8 @@ class ActorRolloutRefWorker(Worker):
         if self._is_actor:
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
             self.config.actor.ppo_mini_batch_size //= (self.device_mesh.shape[0] // self.ulysses_sequence_parallel_size)
+            if self.config.actor.ppo_mini_batch_size == 0:
+                raise ValueError(f"self.config.actor.ppo_mini_batch_size={self.config.actor.ppo_mini_batch_size} is 0")
             # micro bsz
             if self.config.actor.ppo_micro_batch_size is not None:
                 self.config.actor.ppo_micro_batch_size //= (self.device_mesh.shape[0] //
