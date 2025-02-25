@@ -7,6 +7,14 @@ It's initialized from [verl](https://github.com/volcengine/verl). verl's README 
 ## Setup
 Check the guide of verl to setup the environment.
 
+Additional:
+```
+pip install math-verify[antlr4_9_3]==0.6.0
+pip install vllm==0.6.3
+pip install transformers==4.47.0
+```
+
+
 ## Data preparation
 Deepscaler has 40K high-quality math (Q, A) pairs from previous AIME, AMC, etc. Prepare this by running:
 ```bash
