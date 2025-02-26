@@ -49,15 +49,15 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info):
         "nanoverl/minerva",
         "nanoverl/olympiad_bench",
     ]:
-        # from . import prime_math
+        from . import prime_math
 
         # only take the accuracy reward
-        # res = prime_math.compute_score(solution_str, ground_truth)[0]
-        from .math_hf import MathReward
+        res = prime_math.compute_score(solution_str, ground_truth)[0]
+        # from .math_hf import MathReward
 
-        res = MathReward(reward_fn_names=["accuracy"]).compute_score(
-            solution_str, ground_truth
-        )
+        # res = MathReward(reward_fn_names=["accuracy"]).compute_score(
+        #     solution_str, ground_truth
+        # )
     else:
         raise NotImplementedError
 

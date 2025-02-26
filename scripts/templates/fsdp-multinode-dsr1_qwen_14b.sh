@@ -66,9 +66,6 @@ done
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
-    actor_rollout_ref.actor.fsdp_config.grad_offload=False \
-    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-    actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
@@ -78,13 +75,9 @@ done
     actor_rollout_ref.rollout.gpu_memory_utilization=0.2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
-    actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     critic.model.enable_gradient_checkpointing=True \
     critic.model.fsdp_config.fsdp_size=-1 \
-    critic.model.fsdp_config.grad_offload=True \
-    critic.model.fsdp_config.optimizer_offload=True \
-    critic.model.fsdp_config.param_offload=True \
     critic.model.path=$BASE_MODEL \
     critic.model.use_remove_padding=True \
     critic.optim.lr=1e-5 \
