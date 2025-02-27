@@ -73,7 +73,7 @@ done
 
 
 cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360/verl/trainer/config --config-name='ppo_trainer' \
-   data.train_files="$train_files" \
+    data.train_files="$train_files" \
     data.val_files="$test_files" \
     data.train_batch_size=512 \
     data.val_batch_size=1312 \
@@ -85,7 +85,7 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.strategy=fsdp \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=$SP_SIZE \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
@@ -100,7 +100,7 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     critic.model.use_remove_padding=True \
     critic.optim.lr=1e-5 \
     critic.ppo_micro_batch_size_per_gpu=4 \
-    critic.ppo_mini_batch_size=32 \
+    critic.ppo_mini_batch_size=256 \
     critic.ulysses_sequence_parallel_size=$SP_SIZE \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \

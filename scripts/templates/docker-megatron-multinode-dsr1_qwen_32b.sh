@@ -106,7 +106,7 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     critic.optim.lr=1e-5 \
     critic.model.enable_gradient_checkpointing=True \
     critic.model.path=$BASE_MODEL \
-    critic.ppo_mini_batch_size=32 \
+    critic.ppo_mini_batch_size=256 \
     critic.ppo_micro_batch_size_per_gpu=4 \
     critic.megatron.tensor_model_parallel_size=$TP_SIZE \
     critic.megatron.pipeline_model_parallel_size=$PP_SIZE \

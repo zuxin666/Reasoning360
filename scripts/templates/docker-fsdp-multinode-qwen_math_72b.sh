@@ -1,15 +1,15 @@
 #!/bin/bash
 #SBATCH --partition=mbzuai
 #SBATCH --job-name=rl
-#SBATCH --nodes=16
-#SBATCH --ntasks=16
+#SBATCH --nodes=64
+#SBATCH --ntasks=64
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --exclusive
 #SBATCH --cpus-per-task=64
 #SBATCH --output=slurm/verl-%j.out
 #SBATCH --error=slurm/verl-%j.err
-#SBATCH --exclude=g42-odin-h100-[106,342,358]
+#SBATCH --exclude=g42-odin-h100-[106,342,358,420]
 #SBATCH --exclusive
 
 
@@ -83,25 +83,30 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.strategy=fsdp \
+    actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
+    actor_rollout_ref.actor.fsdp_config.param_offload=True \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=$SP_SIZE \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP_SIZE \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.n=1 \
     critic.model.enable_gradient_checkpointing=True \
     critic.model.fsdp_config.fsdp_size=-1 \
+    critic.model.fsdp_config.param_offload=True \
+    critic.model.fsdp_config.optimizer_offload=True \
     critic.model.path=$BASE_MODEL \
     critic.model.use_remove_padding=True \
     critic.optim.lr=1e-5 \
-    critic.ppo_micro_batch_size_per_gpu=4 \
-    critic.ppo_mini_batch_size=32 \
+    critic.ppo_micro_batch_size_per_gpu=1 \
+    critic.ppo_mini_batch_size=256 \
     critic.ulysses_sequence_parallel_size=$SP_SIZE \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
