@@ -43,7 +43,7 @@ deepscaler_train_path=${DATA_DIR}/deepscaler_preview/train.parquet
 aime_test_path=${DATA_DIR}/deepscaler_preview/aime.parquet
 train_files="['$deepscaler_train_path']"
 test_files="['$aime_test_path']"
-BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
 
 WANDB_PROJECT=Reasoning360
 WANDB_EXPERIMENT_NAME=deepscaler-${BASE_MODEL##*/}-${SLURM_JOB_ID}
@@ -77,10 +77,10 @@ done
 "${CONDA_BIN_PATH}python" -m verl.trainer.main_ppo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
-    data.train_batch_size=512 \
+    data.train_batch_size=16 \
     data.val_batch_size=1312 \
-    data.max_prompt_length=2048 \
-    data.max_response_length=8096 \
+    data.max_prompt_length=1024 \
+    data.max_response_length=3072 \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -88,16 +88,16 @@ done
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.strategy=fsdp \
-    actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     critic.model.enable_gradient_checkpointing=True \
     critic.model.fsdp_config.fsdp_size=-1 \
     critic.model.fsdp_config.optimizer_offload=True \
@@ -105,9 +105,9 @@ done
     critic.model.path=$BASE_MODEL \
     critic.model.use_remove_padding=True \
     critic.optim.lr=1e-5 \
-    critic.ppo_micro_batch_size_per_gpu=4 \
-    critic.ppo_mini_batch_size=32 \
-    critic.ulysses_sequence_parallel_size=8 \
+    critic.ppo_micro_batch_size_per_gpu=2 \
+    critic.ppo_mini_batch_size=16 \
+    critic.ulysses_sequence_parallel_size=1 \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
@@ -116,6 +116,6 @@ done
     trainer.n_gpus_per_node=8 \
     +trainer.val_before_train=True \
     trainer.nnodes=$worker_num \
-    trainer.save_freq=5 \
-    trainer.test_freq=1 \
-    trainer.total_epochs=50
+    trainer.save_freq=10 \
+    trainer.test_freq=10 \
+    trainer.total_epochs=1

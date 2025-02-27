@@ -33,11 +33,14 @@ install_requires = [
   'pyarrow>=15.0.0',
   'pybind11',
   'pylatexenc',
-  'ray>=2.10',
+  'ray[default]>=2.10',
   'tensordict<0.6',
-  'transformers',
-  'vllm<=0.6.3.post1',
+  'transformers==4.47.0',
+  'vllm==0.6.3',
   'wandb',
+  "math-verify[antlr4_9_3]==0.6.0",
+  "nvitop",
+  "flash-attn",
 ]
 
 TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
