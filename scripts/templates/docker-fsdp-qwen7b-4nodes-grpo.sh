@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --partition=mbzuai
 #SBATCH --job-name=rl
-#SBATCH --nodes=16
-#SBATCH --ntasks=16
+#SBATCH --nodes=4
+#SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --exclusive
@@ -31,12 +31,20 @@ IMAGE_PATH=${HOME}/Reasoning360/docker/images/verl_megatron_v2.sqsh
 # Data config
 DATA_DIR=${MOUNT_WORKING_DIR}/data
 deepscaler_train_path=${DATA_DIR}/deepscaler_preview/train.parquet
+# math_test_path=${DATA_DIR}/math/test.parquet
 aime_test_path=${DATA_DIR}/deepscaler_preview/aime.parquet
-train_files="['$deepscaler_train_path']"
-test_files="['$aime_test_path']"
+amc_test_path=${DATA_DIR}/deepscaler_preview/amc.parquet
+math_test_path=${DATA_DIR}/deepscaler_preview/math.parquet
+minerva_test_path=${DATA_DIR}/deepscaler_preview/minerva.parquet
+olympiad_bench_test_path=${DATA_DIR}/deepscaler_preview/olympiad_bench.parquet
+
+train_files="[${deepscaler_train_path}]"
+test_files="[${aime_test_path},${amc_test_path},${math_test_path},${minerva_test_path},${olympiad_bench_test_path}]"
 
 # Model config
-BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+# BASE_MODEL=Qwen/Qwen2.5-32B
+BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
+# BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Llama-70B
@@ -44,11 +52,11 @@ BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 # BASE_MODEL=meta-llama/Meta-Llama-3-8B-Instruct
 
 # Parallel config
-SP_SIZE=4
-ROLLOUT_TP_SIZE=8
+SP_SIZE=1
+ROLLOUT_TP_SIZE=4
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=zhoujun-math-${BASE_MODEL##*/}-fsdp-${SLURM_JOB_ID}
+WANDB_EXPERIMENT_NAME=zhoujun-docker-math-${BASE_MODEL##*/}-${SLURM_JOB_ID}
 
 echo "Node list: ${nodes[@]}"
 
@@ -90,14 +98,14 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.strategy="fsdp" \
-    actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=${SP_SIZE} \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=${ROLLOUT_TP_SIZE} \
     actor_rollout_ref.rollout.n=64 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
