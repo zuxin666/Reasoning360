@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --partition=mbzuai
 #SBATCH --job-name=rl
-#SBATCH --nodes=8
-#SBATCH --ntasks=8
+#SBATCH --nodes=16
+#SBATCH --ntasks=16
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --exclusive

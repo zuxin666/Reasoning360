@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --partition=mbzuai
 #SBATCH --job-name=rl
-#SBATCH --nodes=8
-#SBATCH --ntasks=8
+#SBATCH --nodes=16
+#SBATCH --ntasks=16
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --exclusive
@@ -44,7 +44,7 @@ BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 # BASE_MODEL=meta-llama/Meta-Llama-3-8B-Instruct
 
 # Parallel config
-SP_SIZE=1
+SP_SIZE=4
 ROLLOUT_TP_SIZE=8
 
 WANDB_PROJECT=Reasoning360
@@ -84,7 +84,7 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.strategy=fsdp \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=$SP_SIZE \
