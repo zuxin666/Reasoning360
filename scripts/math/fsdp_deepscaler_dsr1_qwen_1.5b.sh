@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=rl
 #SBATCH --partition=mbzuai
-#SBATCH --nodes=4
-#SBATCH --ntasks=4
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=96
@@ -10,10 +10,27 @@
 #SBATCH --output=slurm/verl-%j.out
 #SBATCH --error=slurm/verl-%j.err
 #SBATCH --exclusive
+#SBATCH --exclude=g42-h100-instance-130
 #SBATCH --time=12:00:00
 
 nodes=( $( scontrol show hostnames $SLURM_JOB_NODELIST ) )
 export head_node=${nodes[0]}
+
+echo "${nodes[@]}"
+for host in ${nodes[@]}; do
+    echo "Checking node: $host"
+    srun --nodes=1 --ntasks=1 --nodelist=$host \
+         ~/Reasoning360/scripts/check_gpu.sh
+
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Found GPU usage by other users on $host. Exiting."
+        exit 1
+    fi
+done
+
+echo "=== No leftover GPU usage found on all allocated nodes. ==="
+echo "Proceeding with the main job..."
+
 head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
 port=6379
 address_head=$head_node_ip:$port
@@ -21,18 +38,20 @@ address_head=$head_node_ip:$port
 # Experiment config
 WORKING_DIR=${HOME}/Reasoning360
 DATA_DIR=${WORKING_DIR}/data
-math_train_path=${DATA_DIR}/math/train.parquet
-math_test_path=${DATA_DIR}/math/test.parquet
-train_files="['$math_train_path']"
-test_files="['$math_test_path']"
-BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
+deepscaler_train_path=${DATA_DIR}/deepscaler_preview/train.parquet
+# math_test_path=${DATA_DIR}/deepscaler_preview/math.parquet
+aime_test_path=${DATA_DIR}/deepscaler_preview/aime.parquet
+train_files="['$deepscaler_train_path']"
+test_files="['$aime_test_path']"
+BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=math-${BASE_MODEL##*/}-${SLURM_JOB_ID}
+WANDB_EXPERIMENT_NAME=deepscaler-${BASE_MODEL##*/}-${SLURM_JOB_ID}
 
 export worker_num=$SLURM_NNODES
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export GLOO_SOCKET_IFNAME=ens10f0np0
+export HYDRA_FULL_ERROR=1
 
 # Remove existing Ray cluster
 srun --nodes=$worker_num --ntasks=$worker_num --ntasks-per-node=1 rm -rf /tmp/ray/ray_current_cluster
@@ -58,31 +77,29 @@ done
 "${CONDA_BIN_PATH}python" -m verl.trainer.main_ppo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
-    data.train_batch_size=256 \
+    data.train_batch_size=512 \
     data.val_batch_size=1312 \
-    data.max_prompt_length=4096 \
-    data.max_response_length=10240 \
+    data.max_prompt_length=2048 \
+    data.max_response_length=8096 \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
-    actor_rollout_ref.actor.fsdp_config.grad_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.strategy=fsdp \
-    actor_rollout_ref.actor.ulysses_sequence_parallel_size=8 \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.2 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=8 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     critic.model.enable_gradient_checkpointing=True \
     critic.model.fsdp_config.fsdp_size=-1 \
-    critic.model.fsdp_config.grad_offload=True \
     critic.model.fsdp_config.optimizer_offload=True \
     critic.model.fsdp_config.param_offload=True \
     critic.model.path=$BASE_MODEL \
@@ -97,8 +114,8 @@ done
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \
     trainer.n_gpus_per_node=8 \
-    +trainer.val_before_train=False \
+    +trainer.val_before_train=True \
     trainer.nnodes=$worker_num \
     trainer.save_freq=5 \
-    trainer.test_freq=5 \
-    trainer.total_epochs=10
+    trainer.test_freq=1 \
+    trainer.total_epochs=50

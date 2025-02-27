@@ -20,7 +20,7 @@ import warnings
 import torch
 import torch.distributed
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType
-from torch.distributed.fsdp import ShardedStateDictConfig, ShardedOptimStateDictConfig
+from torch.distributed.fsdp import ShardedStateDictConfig, ShardedOptimStateDictConfig, FullStateDictConfig
 
 from verl.utils.fs import copy_local_path_from_hdfs, is_non_local
 
@@ -135,6 +135,12 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 torch.save(optimizer_state_dict, optim_path)  # TODO: address optimizer is None
                 torch.save(extra_state_dict, extra_path)
 
+        with FSDP.state_dict_type(
+            self.model, 
+            StateDictType.FULL_STATE_DICT, 
+            FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+        ):
+            full_state_dict = self.model.state_dict()
         # wait for everyone to dump to local
         torch.distributed.barrier()
 
@@ -143,6 +149,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             os.makedirs(hf_local_path, exist_ok=True)
             self.model._fsdp_wrapped_module.config.save_pretrained(hf_local_path)
             self.tokenizer.save_pretrained(hf_local_path)
+            self.model.save_pretrained(hf_local_path, state_dict=full_state_dict)
 
         torch.distributed.barrier()
 
