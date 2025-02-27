@@ -20,7 +20,7 @@ echo "${nodes[@]}"
 for host in ${nodes[@]}; do
     echo "Checking node: $host"
     srun --nodes=1 --ntasks=1 --nodelist=$host \
-         ~/shibo/Reasoning360/scripts/check_gpu.sh
+         ~/Reasoning360/scripts/check_gpu.sh
 
     if [ $? -ne 0 ]; then
         echo "ERROR: Found GPU usage by other users on $host. Exiting."
@@ -41,7 +41,7 @@ address_head=$head_node_ip:$port
 # address_head=176.56.202.149:6379
 
 # Experiment config
-WORKING_DIR=${HOME}/shibo/Reasoning360
+WORKING_DIR=${HOME}/Reasoning360
 DATA_DIR=${WORKING_DIR}/data
 math_train_path=${DATA_DIR}/math/train.parquet
 math_test_path=${DATA_DIR}/math/test.parquet
