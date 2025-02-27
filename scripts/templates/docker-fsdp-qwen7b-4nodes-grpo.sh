@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --partition=mbzuai
 #SBATCH --job-name=rl
-#SBATCH --nodes=16
-#SBATCH --ntasks=16
+#SBATCH --nodes=4
+#SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --exclusive
@@ -31,12 +31,20 @@ IMAGE_PATH=${HOME}/Reasoning360/docker/images/verl_megatron_v2.sqsh
 # Data config
 DATA_DIR=${MOUNT_WORKING_DIR}/data
 deepscaler_train_path=${DATA_DIR}/deepscaler_preview/train.parquet
+# math_test_path=${DATA_DIR}/math/test.parquet
 aime_test_path=${DATA_DIR}/deepscaler_preview/aime.parquet
-train_files="['$deepscaler_train_path']"
-test_files="['$aime_test_path']"
+amc_test_path=${DATA_DIR}/deepscaler_preview/amc.parquet
+math_test_path=${DATA_DIR}/deepscaler_preview/math.parquet
+minerva_test_path=${DATA_DIR}/deepscaler_preview/minerva.parquet
+olympiad_bench_test_path=${DATA_DIR}/deepscaler_preview/olympiad_bench.parquet
+
+train_files="[${deepscaler_train_path}]"
+test_files="[${aime_test_path},${amc_test_path},${math_test_path},${minerva_test_path},${olympiad_bench_test_path}]"
 
 # Model config
-BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+# BASE_MODEL=Qwen/Qwen2.5-32B
+BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
+# BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Llama-70B
@@ -44,11 +52,11 @@ BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 # BASE_MODEL=meta-llama/Meta-Llama-3-8B-Instruct
 
 # Parallel config
-SP_SIZE=4
-ROLLOUT_TP_SIZE=8
+SP_SIZE=1
+ROLLOUT_TP_SIZE=4
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=math-${BASE_MODEL##*/}-fsdp
+WANDB_EXPERIMENT_NAME=zhoujun-docker-math-${BASE_MODEL##*/}-${SLURM_JOB_ID}
 
 echo "Node list: ${nodes[@]}"
 
@@ -73,46 +81,45 @@ done
 
 
 cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360/verl/trainer/config --config-name='ppo_trainer' \
+    algorithm.adv_estimator=grpo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
-    data.train_batch_size=512 \
-    data.val_batch_size=1312 \
+    data.train_batch_size=128 \
+    data.val_batch_size=2048 \
     data.max_prompt_length=1024 \
-    data.max_response_length=2048 \
+    data.max_response_length=3072 \
     actor_rollout_ref.model.path=$BASE_MODEL \
-    actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=True \
+    actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-    actor_rollout_ref.actor.strategy=fsdp \
-    actor_rollout_ref.actor.ulysses_sequence_parallel_size=$SP_SIZE \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=32 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=128 \
+    actor_rollout_ref.actor.strategy="fsdp" \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=${SP_SIZE} \
+    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.kl_loss_coef=0.001 \
+    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=$ROLLOUT_TP_SIZE \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.rollout.n=1 \
-    critic.model.enable_gradient_checkpointing=True \
-    critic.model.fsdp_config.fsdp_size=-1 \
-    critic.model.path=$BASE_MODEL \
-    critic.model.use_remove_padding=True \
-    critic.optim.lr=1e-5 \
-    critic.ppo_micro_batch_size_per_gpu=4 \
-    critic.ppo_mini_batch_size=256 \
-    critic.ulysses_sequence_parallel_size=$SP_SIZE \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=${ROLLOUT_TP_SIZE} \
+    actor_rollout_ref.rollout.n=64 \
+    actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
     algorithm.kl_ctrl.kl_coef=0.001 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \
-    trainer.n_gpus_per_node=8 \
     +trainer.val_before_train=True \
+    trainer.n_gpus_per_node=8 \
     trainer.nnodes=$worker_num \
-    trainer.save_freq=5 \
-    trainer.test_freq=2 \
-    trainer.total_epochs=50"
+    trainer.save_freq=3 \
+    trainer.test_freq=3 \
+    trainer.total_epochs=5"
 
 node_i=${nodes[worker_num - 1]}
 echo "================================================"
