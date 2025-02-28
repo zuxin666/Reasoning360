@@ -48,6 +48,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         "nanoverl/amc",
         "nanoverl/minerva",
         "nanoverl/olympiad_bench",
+        "orz_math_57k_collected.json"
     ]:
         from . import prime_math
 

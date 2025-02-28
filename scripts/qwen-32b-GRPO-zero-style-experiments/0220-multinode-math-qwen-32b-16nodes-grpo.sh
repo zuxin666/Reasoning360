@@ -20,8 +20,10 @@ nodes=( $( scontrol show hostnames $SLURM_JOB_NODELIST ) )
 echo "${nodes[@]}"
 for host in ${nodes[@]}; do
     echo "Checking node: $host"
-    srun --nodes=1 --ntasks=1 --nodelist=$host \
-         ~/Reasoning360/scripts/check_gpu.sh
+    output=$(srun --nodes=1 --ntasks=1 --nodelist=$host \
+         ~/Reasoning360/scripts/check_gpu.sh)
+    echo "GPU check output for $host:"
+    echo "$output"
 
     if [ $? -ne 0 ]; then
         echo "ERROR: Found GPU usage by other users on $host. Exiting."
