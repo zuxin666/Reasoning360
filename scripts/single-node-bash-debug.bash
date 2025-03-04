@@ -1,3 +1,7 @@
+# a minimal script to run a single node PPO training
+# This script is used to debug any code updates
+# It is not intended to be used for training
+
 export head_node=${nodes[0]}
 
 head_node_ip=$(hostname --ip-address)
