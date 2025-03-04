@@ -14,10 +14,12 @@ pybind11
 pylatexenc
 ray
 tensordict<0.6
-transformers
-vllm==0.6.3.post1
+transformers==4.47.0
+vllm==0.6.3
 wandb
 liger-kernel
 pylatexenc
 pyext
-math_verify
+math-verify[antlr4_9_3]==0.6.0
+nvitop
+flash-attn

@@ -1,3 +1,6 @@
+# A script to clean the checkpoints that are not multiples of 24
+# (in case the saving frequency was set too high and the disk space is limited)
+
 base_dir="checkpoints/Reasoning360/shibo-math-grpo-32nodes-setting3-Qwen2.5-32B"
 for folder in "$base_dir"/global_step_*; do
     # Skip if no files match the pattern
