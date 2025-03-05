@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=rl-reasoning-shibo
 #SBATCH --partition=mbzuai
-#SBATCH --nodes=16
-#SBATCH --ntasks=16
+#SBATCH --nodes=32
+#SBATCH --ntasks=32
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=32
@@ -10,7 +10,6 @@
 #SBATCH --output=slurm/verl-%j.out
 #SBATCH --error=slurm/verl-%j.err
 #SBATCH --exclusive
-#SBATCH --exclude=g42-h100-instance-[067-087,089-092,094,149,120-127,149-153]
 #SBATCH --time=48:00:00
 
 # sleep 172800
@@ -72,7 +71,7 @@ test_files="['$aime_test_path', '$amc_test_path', '$math_test_path', '$minerva_t
 # BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
 BASE_MODEL=Qwen/Qwen2.5-32B
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=shibo-math-grpo-16nodes-setting2-${BASE_MODEL##*/}
+WANDB_EXPERIMENT_NAME=shibo-math-grpo-32nodes-setting5-${BASE_MODEL##*/}
 
 export worker_num=$SLURM_NNODES
 # export worker_num=4
@@ -117,10 +116,10 @@ sleep 10
     algorithm.adv_estimator=grpo \
     data.train_files="$train_files" \
     data.val_files="$test_files" \
-    data.train_batch_size=128 \
+    data.train_batch_size=256 \
     data.val_batch_size=2048 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=7168 \
+    data.max_prompt_length=2048 \
+    data.max_response_length=10240 \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
@@ -129,13 +128,13 @@ sleep 10
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=128 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.strategy="fsdp" \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=4 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=8 \

@@ -50,6 +50,9 @@ def _default_compute_score(
         "nanoverl/amc",
         "nanoverl/minerva",
         "nanoverl/olympiad_bench",
+        "orz_math_57k_collected.json",
+        "examples/data_preprocess/orz_math_57k_collected.json",
+        
     ]:
         if reward_metric == "prime_math" or reward_metric is None:
             from . import prime_math

@@ -292,6 +292,8 @@ def tokenize_and_postprocess_data(prompt: str,
             input_ids = input_ids[:, :max_length]
             attention_mask = attention_mask[:, :max_length]
         elif truncation == 'error':
+            print(f'Error prompt: {prompt}')
+            print(f'sequence_length: {sequence_length}, max_length: {max_length}')
             raise NotImplementedError(f'{sequence_length=} is larger than {max_length=}')
         else:
             raise NotImplementedError(f'Unknown truncation method {truncation}')

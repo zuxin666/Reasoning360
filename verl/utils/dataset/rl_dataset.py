@@ -108,12 +108,24 @@ class RLHFDataset(Dataset):
 
         print(f'original dataset len: {len(self.dataframe)}')
 
+        print(self.dataframe.head())
+
+        # Safely check if apply_chat_template exists in dataframe
+        if "apply_chat_template" not in self.dataframe:
+            print("Warning: apply_chat_template column not found in dataframe. Defaulting to True.")
+            self.dataframe["apply_chat_template"] = [True] * len(self.dataframe)
+
         # filter out too long prompts
         tokenizer = self.tokenizer
         prompt_key = self.prompt_key
-        self.dataframe = self.dataframe[self.dataframe.apply(lambda doc: len(
-            tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)) <= self.max_prompt_length,
-                                                             axis=1)]
+        self.dataframe = self.dataframe[
+            self.dataframe.apply(
+                lambda doc: len(
+                    tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True) \
+                    if doc["apply_chat_template"] \
+                        else tokenizer.encode(doc["processed_input"])) \
+                <= self.max_prompt_length,
+        axis=1)]
 
         print(f'filter dataset len: {len(self.dataframe)}')
 
@@ -137,7 +149,8 @@ class RLHFDataset(Dataset):
 
         chat = row_dict.pop(self.prompt_key)
 
-        prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+        prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False) \
+            if row_dict["apply_chat_template"] else row_dict["processed_input"]
 
         input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
                                                                          tokenizer=self.tokenizer,

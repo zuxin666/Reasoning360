@@ -7,13 +7,7 @@ It's initialized from [verl](https://github.com/volcengine/verl). verl's README 
 ## Setup
 Check the guide of verl to setup the environment.
 
-Additional:
-```
-pip install math-verify[antlr4_9_3]==0.6.0
-pip install vllm==0.6.3
-pip install transformers==4.47.0
-```
-
+Remember to process data and wandb login before launching the experiments.
 
 ## Data preparation
 Deepscaler has 40K high-quality math (Q, A) pairs from previous AIME, AMC, etc. Prepare this by running:
@@ -22,6 +16,42 @@ python examples/data_preprocess/deepscaler_preview.py --local_dir data/deepscale
 ```
 
 Adding new dataset is similar.
+
+## Data viewer
+
+1. Installation
+
+First install streamlit with
+```bash
+pip install streamlit
+```
+
+2. Running
+
+Then run 
+```bash
+streamlit run data_viewer.py
+```
+
+For custom data sources, you can specify arguments:
+```bash
+streamlit run data_viewer.py -- --source-type wandb_table --file-path path/to/your/file.json
+```
+
+Currently it only supports loading the wandb logging table (enabled with `trainer.val_generations_to_log_to_wandb=...` in a training script).
+
+We are extending it to other data sources.
+
+3. Viewing the data
+
+Need to set up port forwarding
+```bash
+ssh -L 8501:localhost:8501 username@cluster_node
+```
+
+Then access `127.0.0.1:8501`
+
+
 
 ## Usage (conda+fsdp)
 First export the conda binary path (can check with `which python` and `which ray`):
