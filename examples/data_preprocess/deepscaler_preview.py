@@ -143,6 +143,10 @@ if __name__ == "__main__":
             question = question + " " + instruction_following
 
             answer = example.pop("answer")
+
+            if isinstance(answer, list):
+                answer = answer[0]  # minerva, olympiad_bench
+
             data = {
                 "data_source": data_source,
                 "prompt": [{"role": "user", "content": question}],

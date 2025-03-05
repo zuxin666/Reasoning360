@@ -14,7 +14,9 @@
 # from . import gsm8k, math, prime_math, prime_code
 
 
-def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None):
+def _default_compute_score(
+    data_source, solution_str, ground_truth, extra_info=None, reward_metric=None
+):
     if data_source == "openai/gsm8k":
         from . import gsm8k
 
@@ -49,15 +51,33 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         "nanoverl/minerva",
         "nanoverl/olympiad_bench",
     ]:
-        from . import prime_math
+        if reward_metric == "prime_math" or reward_metric is None:
+            from . import prime_math
 
-        # only take the accuracy reward
-        res = prime_math.compute_score(solution_str, ground_truth)[0]
-        # from .math_hf import MathReward
+            res = prime_math.compute_score(solution_str, ground_truth)[0]
+        elif reward_metric == "math_verify":
+            from .orz.math_utils_sync import is_equal, solution2answer
 
-        # res = MathReward(reward_fn_names=["accuracy"]).compute_score(
-        #     solution_str, ground_truth
-        # )
+            res = is_equal(
+                solution2answer(solution_str),
+                solution2answer(str(ground_truth)),
+                math_mode="math_verify",
+            )
+        elif reward_metric == "boxed_math_verify":
+            from .orz.math_utils_sync import is_equal, solution2answer
+
+            def add_boxed(s):
+                s = str(s)
+                if "\\boxed" not in s:
+                    s = f"\\boxed{{{s}}}"
+                return s
+
+            res = is_equal(
+                add_boxed(solution2answer(solution_str)),
+                add_boxed(solution2answer(str(ground_truth))),
+                math_mode="math_verify",
+            )
+
     else:
         raise NotImplementedError
 
