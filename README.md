@@ -52,6 +52,21 @@ ssh -L 8501:localhost:8501 username@cluster_node
 Then access `127.0.0.1:8501`
 
 
+## Usage (docker+fsdp/megatron)
+Multi-node training 7B w/ FSDP backend:
+```bash
+sbatch scripts/templates/docker-fsdp-qwen7b-4nodes-grpo.sh
+```
+
+Multi-node training 32B w/ FSDP backend:
+```bash
+sbatch scripts/templates/docker-fsdp-qwen32b-16nodes-grpo.sh
+```
+
+Multi-node training 32B w/ Megatron backend:
+```bash
+sbatch scripts/templates/docker-megatron-dsr1_qwen_32b-16nodes-ppo.sh
+```
 
 ## Usage (conda+fsdp)
 First export the conda binary path (can check with `which python` and `which ray`):
@@ -61,20 +76,27 @@ export CONDA_BIN_PATH=/path/to/conda/bin/
 
 Single node, 8-H100 GPUs:
 ```bash
-bash scripts/template-fsdp-singlenode-qwen2.5_math_3b.sh
+bash scripts/templates/conda-fsdp-qwen2.5_math_3b-1node-ppo.sh
 ```
 
-Multi-node using slurm:
+Multi-node training 7B:
 ```bash
-sbatch scripts/template-fsdp-multinode-dsr1_distill_qwen_14b.sh
+sbatch scripts/templates/conda-fsdp-qwen7b-4nodes-grpo.sh
+```
+
+Multi-node training 32B:
+```bash
+sbatch scripts/templates/conda-fsdp-qwen32b-16nodes-grpo.sh
 ```
 
 The single-node script directly prints log in the terminal; the multi-node script prints log in the slurm log (`.out` and `.err`) files. Check wandb for the experiment logs.
 
 Adjust the template script to fit your needs.
 
-## Usage (docker+megatron)
-TODO
+## Change reward metric
+Set `reward_model.reward_metric` in the config file or cli arguments. Can choose from "prime_math", "math_verify", "boxed_math_verify" for math. Default is None, i.e., use "prime_math" for math.
+
+
 
 ## Trouble shooting
 1. Gloo socket issue:
@@ -85,6 +107,9 @@ already added in the template scripts.
 
 2. Ray failed before finished:
 TO SOLVE
+
+
+
 
 ---
 <h1 style="text-align: center;">verl: Volcano Engine Reinforcement Learning for LLM</h1>
