@@ -1030,10 +1030,6 @@ class RayPPOTrainer(object):
 
                 with _timer("step", timing_raw):
                     # generate a batch
-                    with _timer("gen", timing_raw):
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(
-                            gen_batch
-                        )
 
                     if self.config.algorithm.adv_estimator == "remax":
                         with _timer("gen_max", timing_raw):
@@ -1059,6 +1055,24 @@ class RayPPOTrainer(object):
                         [str(uuid.uuid4()) for _ in range(len(batch.batch))],
                         dtype=object,
                     )
+
+                    if len(gen_batch) % self.actor_rollout_wg.world_size == 0:
+                        pass # each worker is assigned multiple samples
+                    elif self.actor_rollout_wg.world_size % len(gen_batch) == 0:
+                        # each sample is assigned to multiple workers
+                        repli = self.actor_rollout_wg.world_size // len(gen_batch)
+                        import warnings
+                        warnings.warn(f"batch_size > world_size. The actual rollout.n is multiplied by {repli}. "
+                                      f"batch_size={len(gen_batch)}, world_size={self.actor_rollout_wg.world_size}, "
+                                      f"actual rollout.n={self.config.actor_rollout_ref.rollout.n * repli} ({self.config.actor_rollout_ref.rollout.n} * {repli})")
+                        batch = batch.repeat(repeat_times=repli, interleave=True)
+                    else:
+                        raise NotImplementedError("one of batch_size and world_size must be divisible by the other")
+                    
+                    with _timer("gen", timing_raw):
+                        gen_batch_output = self.actor_rollout_wg.generate_sequences(
+                            gen_batch
+                        )
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(
                         repeat_times=self.config.actor_rollout_ref.rollout.n,
