@@ -1057,17 +1057,17 @@ class RayPPOTrainer(object):
                     )
 
                     if len(gen_batch) % self.actor_rollout_wg.world_size == 0:
-                        pass # each worker is assigned multiple samples
+                        # each worker is assigned multiple samples
+                        num_samples_on_each_worker = self.config.actor_rollout_ref.rollout.n
                     elif self.actor_rollout_wg.world_size % len(gen_batch) == 0:
                         # each sample is assigned to multiple workers
-                        repli = self.actor_rollout_wg.world_size // len(gen_batch)
-                        import warnings
-                        warnings.warn(f"batch_size > world_size. The actual rollout.n is multiplied by {repli}. "
-                                      f"batch_size={len(gen_batch)}, world_size={self.actor_rollout_wg.world_size}, "
-                                      f"actual rollout.n={self.config.actor_rollout_ref.rollout.n * repli} ({self.config.actor_rollout_ref.rollout.n} * {repli})")
-                        batch = batch.repeat(repeat_times=repli, interleave=True)
+                        assert self.config.actor_rollout_ref.rollout.n * len(gen_batch) // self.actor_rollout_wg.world_size == 0, "ppo_mini_batch_size * n must be divisible by world_size. It's not difficult to overcome this limitation, but it has not been implemented"
+                        num_samples_on_each_worker = self.config.actor_rollout_ref.rollout.n * len(gen_batch) // self.actor_rollout_wg.world_size
+                        batch = batch.repeat(repeat_times=self.actor_rollout_wg.world_size // len(gen_batch), interleave=True)
                     else:
-                        raise NotImplementedError("one of batch_size and world_size must be divisible by the other")
+                        raise NotImplementedError("one of ppo_mini_batch_size and world_size must be divisible by the other")
+                        
+                    batch.meta_info["num_samples"] = num_samples_on_each_worker
                     
                     with _timer("gen", timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(
@@ -1075,7 +1075,7 @@ class RayPPOTrainer(object):
                         )
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(
-                        repeat_times=self.config.actor_rollout_ref.rollout.n,
+                        repeat_times=num_samples_on_each_worker,
                         interleave=True,
                     )
                     batch = batch.union(gen_batch_output)

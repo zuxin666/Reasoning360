@@ -193,11 +193,12 @@ class vLLMRollout(BaseRollout):
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
             log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
-        if self.config.n > 1 and do_sample:
-            idx = idx.repeat_interleave(self.config.n, dim=0)
-            attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
-            position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
-            batch_size = batch_size * self.config.n
+        n = prompts.meta_info.get('num_samples', self.config.n)
+        if n > 1 and do_sample:
+            idx = idx.repeat_interleave(n, dim=0)
+            attention_mask = attention_mask.repeat_interleave(n, dim=0)
+            position_ids = position_ids.repeat_interleave(n, dim=0)
+            batch_size = batch_size * n
         seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
