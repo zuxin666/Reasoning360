@@ -1,9 +1,0 @@
-[submodule "verl/utils/reward_score/coder1"]
-	path = verl/utils/reward_score/coder1
-	url = https://github.com/ganler/code-r1.git
-[submodule "code-r1"]
-	path = code-r1
-	url = git@github.com:ganler/code-r1.git
-[submodule "firejail"]
-	path = firejail
-	url = https://github.com/netblue30/firejail.git

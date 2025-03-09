@@ -108,6 +108,9 @@ already added in the template scripts.
 2. Ray failed before finished:
 TO SOLVE
 
+3. Saving checkpoint failed:
+TO SOLVE
+
 
 
 
