@@ -52,6 +52,12 @@ ssh -L 8501:localhost:8501 username@cluster_node
 Then access `127.0.0.1:8501`
 
 
+## Data analysis
+
+```python transform_dataset.py --dataset SynthLabsAI/Big-Math-RL-Verified --output big-math-rl-verified_problems --splits 64```
+
+```python -m sglang.launch_server --model-path deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --host 0.0.0.0 --max-running-requests 512```
+
 
 ## Usage (conda+fsdp)
 First export the conda binary path (can check with `which python` and `which ray`):

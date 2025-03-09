@@ -103,7 +103,7 @@ def extract_solution(solution_str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="data/orz_zero_style")
+    parser.add_argument("--local_dir", default="data/orz_zero_style_v2")
     parser.add_argument("--hdfs_dir", default=None)
     args = parser.parse_args()
 
@@ -123,16 +123,11 @@ if __name__ == "__main__":
 
     print(train_data[0])
 
-    prompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it.
-The assistant first thinks about the reasoning process in the mind and then provides the user
-with the answer. The reasoning process and answer are enclosed within <think> </think> and
-<answer> </answer> tags, respectively, i.e., <think> reasoning process here </think>
-<answer> answer here </answer>. User: You must put your answer inside <answer> </answer> tags, i.e.,
-<answer> answer here </answer>. And your final answer will be extracted automatically by the \\boxed{} tag.
-{{prompt}}
+    prompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
+
+User: {{prompt}} Please put your answer in \\boxed{} tags.
 Assistant: <think>
 """
-
     # Rest of the processing remains the same
     def make_map_fn(split, data_source):
         def process_fn(example, idx):
