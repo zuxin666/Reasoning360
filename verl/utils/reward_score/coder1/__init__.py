@@ -39,8 +39,10 @@ def remote_check_stdio(code, stdin, stdout):
 
 
 def validate_response_structure(processed_str: str) -> bool:
-    pattern = re.compile(r'<think>.*</think>.*<answer>.*</answer>$', re.DOTALL)
-    return bool(pattern.match(processed_str.strip()))
+    # pattern = re.compile(r'<think>.*</think>.*<answer>.*</answer>$', re.DOTALL)
+    # return bool(pattern.match(processed_str.strip()))
+    pattern = re.compile(r'<think>.*</think>.*<answer>.*</answer>', re.DOTALL)
+    return bool(pattern.search(processed_str.strip()))
 
 
 # https://github.com/Unakar/Logic-RL/blob/main/verl/utils/reward_score/kk.py
