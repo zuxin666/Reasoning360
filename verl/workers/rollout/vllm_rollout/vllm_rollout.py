@@ -143,14 +143,6 @@ class vLLMRollout(BaseRollout):
         # if len(old_sampling_params_args):
         for key, value in old_sampling_params_args.items():
             setattr(self.sampling_params, key, value)
-    
-    @staticmethod
-    @contextmanager
-    def timer():
-        import time
-        start = end = time.perf_counter()
-        yield lambda: end - start
-        end = time.perf_counter()
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
@@ -185,7 +177,7 @@ class vLLMRollout(BaseRollout):
             }
 
         # users can customize different sampling_params at different run
-        with self.update_sampling_params(**kwargs), self.timer() as t:
+        with self.update_sampling_params(**kwargs):
             output = self.inference_engine.generate(
                 prompts=None,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
@@ -201,12 +193,11 @@ class vLLMRollout(BaseRollout):
             response = pad_sequence_to_length(response, self.config.response_length, self.pad_token_id)
             log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
-        n = prompts.meta_info.get('num_samples', self.config.n)
-        if n > 1 and do_sample:
-            idx = idx.repeat_interleave(n, dim=0)
-            attention_mask = attention_mask.repeat_interleave(n, dim=0)
-            position_ids = position_ids.repeat_interleave(n, dim=0)
-            batch_size = batch_size * n
+        if self.config.n > 1 and do_sample:
+            idx = idx.repeat_interleave(self.config.n, dim=0)
+            attention_mask = attention_mask.repeat_interleave(self.config.n, dim=0)
+            position_ids = position_ids.repeat_interleave(self.config.n, dim=0)
+            batch_size = batch_size * self.config.n
         seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
@@ -221,10 +212,6 @@ class vLLMRollout(BaseRollout):
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
         response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
-
-        tokens_per_second = torch.sum(response_attention_mask).item() / t()
-        import os
-        print(f"Tokens per second: {tokens_per_second} t/s on device {os.environ["CUDA_VISIBLE_DEVICES"]} on host {os.uname().nodename}", flush=True)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
         batch = TensorDict(
