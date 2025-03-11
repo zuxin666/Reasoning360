@@ -1061,7 +1061,7 @@ class RayPPOTrainer(object):
                         num_samples_on_each_worker = self.config.actor_rollout_ref.rollout.n
                     elif self.actor_rollout_wg.world_size % len(gen_batch) == 0:
                         # each sample is assigned to multiple workers
-                        assert self.config.actor_rollout_ref.rollout.n * len(gen_batch) // self.actor_rollout_wg.world_size == 0, "ppo_mini_batch_size * n must be divisible by world_size. It's not difficult to overcome this limitation, but it has not been implemented"
+                        assert self.config.actor_rollout_ref.rollout.n * len(gen_batch) % self.actor_rollout_wg.world_size == 0, "ppo_mini_batch_size * n must be divisible by world_size. It's not difficult to overcome this limitation, but it has not been implemented"
                         num_samples_on_each_worker = self.config.actor_rollout_ref.rollout.n * len(gen_batch) // self.actor_rollout_wg.world_size
                         batch = batch.repeat(repeat_times=self.actor_rollout_wg.world_size // len(gen_batch), interleave=True)
                     else:
