@@ -26,7 +26,7 @@ cat > ${TEMP_JOB_DIR}/single_node_job.sh << EOF
 #SBATCH --mem=256G
 #SBATCH --output=slurm/sgl-%NODE_ID%-%j.out
 #SBATCH --error=slurm/sgl-%NODE_ID%-%j.err
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 
 # Activate conda environment
 source /mbz/users/shibo.hao/miniforge3/etc/profile.d/conda.sh
@@ -69,8 +69,8 @@ python -m sglang.launch_server \\
 SERVER_PID=\$!
 
 # Wait for server to start
-echo "Waiting for server to initialize (120 seconds)..."
-sleep 120
+echo "Waiting for server to initialize (300 seconds)..."
+sleep 300
 
 # Get the actual IP address of this node
 NODE_IP=\$(hostname -I | awk '{print \$1}')
@@ -78,7 +78,7 @@ echo "Node IP address: \${NODE_IP}"
 
 # Run batch inference on this node
 echo "Starting batch inference on split_\${NODE_ID}.jsonl"
-python \${WORKING_DIR}/batch_inference.py \\
+python \${WORKING_DIR}/data_analysis/batch_inference.py \\
     --input-file \${DATA_DIR}/split_\${NODE_ID}.jsonl \\
     --output-folder \${NODE_OUTPUT_DIR} \\
     --chunk-size 32768 \\
@@ -130,12 +130,12 @@ echo "Job scripts are stored in ${TEMP_JOB_DIR} and can be removed after all job
 # Start monitoring immediately
 echo "Starting job monitoring..."
 echo "Press Ctrl+C to stop monitoring at any time."
+echo "Job IDs are stored in ${WORKING_DIR}/sgl_job_ids.txt and can be modified manually."
 echo ""
 sleep 2  # Brief pause to let the user read the message
 
 # Directly implement monitoring logic
-echo "Monitoring ${#JOB_IDS[@]} jobs..."
-
+echo "Monitoring jobs from ${WORKING_DIR}/sgl_job_ids.txt..."
 while true; do
     clear
     echo "=== SGLang Job Monitoring $(date) ==="
@@ -148,7 +148,11 @@ while true; do
     FAILED=0
     PENDING=0
     
-    for JOB_ID in "${JOB_IDS[@]}"; do
+    # Read job IDs from file, handling space-separated format
+    for JOB_ID in $(cat "${WORKING_DIR}/sgl_job_ids.txt"); do
+        # Skip empty entries
+        [[ -z "$JOB_ID" ]] && continue
+        
         STATUS=$(squeue -j $JOB_ID -h -o "%T" 2>/dev/null)
         NODE_ID=$(squeue -j $JOB_ID -h -o "%j" 2>/dev/null | grep -o '[0-9]\+' || echo "unknown")
         
@@ -181,6 +185,7 @@ while true; do
     echo "Summary: $RUNNING running, $PENDING pending, $COMPLETED completed, $FAILED failed"
     echo ""
     echo "Press Ctrl+C to exit monitoring"
+    echo "You can modify ${WORKING_DIR}/sgl_job_ids.txt to change which jobs are monitored"
     
     # Exit if all jobs are done
     if [ $RUNNING -eq 0 ] && [ $PENDING -eq 0 ]; then
@@ -188,5 +193,5 @@ while true; do
         break
     fi
     
-    sleep 60
+    sleep 10
 done
