@@ -183,6 +183,8 @@ class vLLMRollout(BaseRollout):
                 'temperature': 0,
                 'n': 1  # if greedy, only 1 response
             }
+        if 'num_samples' in prompts.meta_info:
+            kwargs['n'] = prompts.meta_info['num_samples']
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs), self.timer() as t:
@@ -203,6 +205,7 @@ class vLLMRollout(BaseRollout):
         response = pad_2d_list_to_length(response, self.pad_token_id,
                                          max_length=self.config.response_length).to(idx.device)
 
+        n = kwargs['n']
         n = prompts.meta_info.get('num_samples', self.config.n)
         if n > 1 and do_sample:
             idx = idx.repeat_interleave(n, dim=0)

@@ -1024,13 +1024,41 @@ class RayPPOTrainer(object):
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # pop those keys for generation
-                gen_batch = batch.pop(
-                    batch_keys=["input_ids", "attention_mask", "position_ids"]
-                )
 
                 with _timer("step", timing_raw):
                     # generate a batch
 
+                    batch.non_tensor_batch["uid"] = np.array(
+                        [str(uuid.uuid4()) for _ in range(len(batch.batch))],
+                        dtype=object,
+                    )
+
+                    num_sample = len(batch)
+                    num_worker = self.actor_rollout_wg.world_size // self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+                    num_rollout = self.config.actor_rollout_ref.rollout.n
+                    if num_sample % num_worker == 0:
+                        # each worker is assigned multiple samples
+                        num_samples_on_each_worker = self.config.actor_rollout_ref.rollout.n
+                    elif num_worker % num_sample == 0:
+                        # each sample is assigned to multiple workers
+                        assert num_rollout * num_sample % num_worker == 0, "ppo_mini_batch_size * n must be divisible by world_size. It's not difficult to overcome this limitation, but it has not been implemented"
+                        num_samples_on_each_worker = num_rollout * num_sample // num_worker
+                        batch = batch.repeat(repeat_times=num_worker // num_sample, interleave=True)
+                    else:
+                        raise NotImplementedError("one of ppo_mini_batch_size and world_size must be divisible by the other")
+                    
+                    gen_batch = batch.pop(
+                        batch_keys=["input_ids", "attention_mask", "position_ids"]
+                    )
+                        
+                    gen_batch.meta_info["num_samples"] = num_samples_on_each_worker
+                    
+                    with _timer("gen", timing_raw):
+                        gen_batch_output = self.actor_rollout_wg.generate_sequences(
+                            gen_batch
+                        )
+
+                    # This will only work for num_sample % num_worker == 0 now
                     if self.config.algorithm.adv_estimator == "remax":
                         with _timer("gen_max", timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
@@ -1051,28 +1079,6 @@ class RayPPOTrainer(object):
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    batch.non_tensor_batch["uid"] = np.array(
-                        [str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                        dtype=object,
-                    )
-
-                    if len(gen_batch) % self.actor_rollout_wg.world_size == 0:
-                        # each worker is assigned multiple samples
-                        num_samples_on_each_worker = self.config.actor_rollout_ref.rollout.n
-                    elif self.actor_rollout_wg.world_size % len(gen_batch) == 0:
-                        # each sample is assigned to multiple workers
-                        assert self.config.actor_rollout_ref.rollout.n * len(gen_batch) // self.actor_rollout_wg.world_size == 0, "ppo_mini_batch_size * n must be divisible by world_size. It's not difficult to overcome this limitation, but it has not been implemented"
-                        num_samples_on_each_worker = self.config.actor_rollout_ref.rollout.n * len(gen_batch) // self.actor_rollout_wg.world_size
-                        batch = batch.repeat(repeat_times=self.actor_rollout_wg.world_size // len(gen_batch), interleave=True)
-                    else:
-                        raise NotImplementedError("one of ppo_mini_batch_size and world_size must be divisible by the other")
-                        
-                    batch.meta_info["num_samples"] = num_samples_on_each_worker
-                    
-                    with _timer("gen", timing_raw):
-                        gen_batch_output = self.actor_rollout_wg.generate_sequences(
-                            gen_batch
-                        )
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(
                         repeat_times=num_samples_on_each_worker,
@@ -1145,6 +1151,8 @@ class RayPPOTrainer(object):
                             lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                         )
+                    
+                    print(f'{len(batch)=}, {batch.non_tensor_batch["uid"]=}')
 
                     # update critic
                     if self.use_critic:
