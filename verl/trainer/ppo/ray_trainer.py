@@ -1034,7 +1034,8 @@ class RayPPOTrainer(object):
                     )
 
                     num_sample = len(batch)
-                    num_worker = self.actor_rollout_wg.world_size // self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+                    # num_worker = self.actor_rollout_wg.world_size // self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+                    num_worker = self.actor_rollout_wg.world_size
                     num_rollout = self.config.actor_rollout_ref.rollout.n
                     if num_sample % num_worker == 0:
                         # each worker is assigned multiple samples
