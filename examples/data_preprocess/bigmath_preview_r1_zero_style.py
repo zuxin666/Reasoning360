@@ -11,6 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Preprocess the https://huggingface.co/datasets/agentica-org/DeepScaleR-Preview-Dataset to parquet format
+Code referring to https://github.com/agentica-project/deepscaler/blob/main/scripts/data/deepscaler_dataset.py
+"""
 
 import os
 import datasets
@@ -103,35 +107,48 @@ def extract_solution(solution_str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="data/orz_zero_style_v2")
+    parser.add_argument("--local_dir", default="data/bigmath")
     parser.add_argument("--hdfs_dir", default=None)
+
     args = parser.parse_args()
 
-    # Load train data from local JSON file
-    
-    # https://raw.githubusercontent.com/Open-Reasoner-Zero/Open-Reasoner-Zero/refs/heads/main/data/orz_math_57k_collected.json
-    train_data_source = "examples/data_preprocess/orz_math_57k_collected.json"
-    print(f"Loading training data from {train_data_source}...", flush=True)
-    
-    train_dataset = json.load(open(train_data_source, "r"))
-    
-    # Convert to Dataset format that's compatible with the rest of the code
-    train_data = datasets.Dataset.from_list([{
-        "problem": item[0]["value"],
-        "answer": item[1]["ground_truth"]["value"]
-    } for item in train_dataset])
+    train_data_source = "SynthLabsAI/Big-Math-RL-Verified"
+    test_data_sources = [
+        "nanoverl/minerva",
+        "nanoverl/aime",
+        "nanoverl/amc",
+        "nanoverl/olympiad_bench",
+        "nanoverl/math",
+    ]
+    train_dataset = datasets.load_dataset(
+        train_data_source, trust_remote_code=True, split="train"
+    )
+    print(f"Loading the {train_data_source} dataset from huggingface...", flush=True)
+    test_datasets = [
+        datasets.load_dataset(test_data_source, trust_remote_code=True, split="test")
+        for test_data_source in test_data_sources
+    ]
 
-    print(train_data[0])
+    print(f"Loading the {test_data_sources} dataset from huggingface...", flush=True)
+    instruction_following = (
+        "Let's think step by step and output the final answer within \\boxed{}."
+    )
+
 
     prompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
 
 User: {{prompt}} Please put your answer in \\boxed{} tags.
 Assistant: <think>
 """
-    # Rest of the processing remains the same
+
+    # add a row to each data item that represents a unique id
     def make_map_fn(split, data_source):
+
         def process_fn(example, idx):
             question = example.pop("problem")
+
+            # question = question + " " + instruction_following
+
             answer = example.pop("answer")
             data = {
                 "data_source": data_source,
@@ -146,20 +163,27 @@ Assistant: <think>
                 print("=" * 10 + f"{data_source} {split} {idx}" + "=" * 10)
                 print(data)
             return data
+
         return process_fn
 
     local_dir = args.local_dir
     hdfs_dir = args.hdfs_dir
 
-    # Process train data
-    train_data = train_data.map(
+    train_data = train_dataset.map(
         function=make_map_fn("train", train_data_source), with_indices=True
     )
-    print(train_data[0])
     train_data.to_parquet(os.path.join(local_dir, "train.parquet"))
     print(f"train data size:", len(train_data))
+    print(train_data[0])
+    for test_data_source, test_data in zip(test_data_sources, test_datasets):
+        process_fn = make_map_fn("test", test_data_source)
+        test_data = test_data.map(process_fn, with_indices=True)
+        dataset_name = os.path.basename(test_data_source.lower())
+        test_df = pd.DataFrame(test_data)
+        test_df.to_parquet(os.path.join(local_dir, f"{dataset_name}.parquet"))
+        print(f"test data size: ({dataset_name})", len(test_df))
 
-    # Remove test data processing since we're only working with the training data
     if hdfs_dir is not None:
         makedirs(hdfs_dir)
+
         copy(src=local_dir, dst=hdfs_dir)

@@ -1151,8 +1151,6 @@ class RayPPOTrainer(object):
                             lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                         )
-                    
-                    print(f'{len(batch)=}, {batch.non_tensor_batch["uid"]=}')
 
                     # update critic
                     if self.use_critic:

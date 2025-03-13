@@ -334,21 +334,22 @@ def _last_boxed_only_string(string):
 
 def match_answer(response):
     is_matched = False
-    for ans_marker in ['answer:', "answer is", "answers are"]:
-        ans_idx = response.lower().rfind(ans_marker)
-        if ans_idx != -1:
-            is_matched = True
-            response = response[ans_idx + len(ans_marker):].strip()
-            if response.endswith("\n"):
-                response = response[:-2]
+    response = response.split("</think>")[-1]
+    # for ans_marker in ['answer:', "answer is", "answers are"]:
+    #     ans_idx = response.lower().rfind(ans_marker)
+    #     if ans_idx != -1:
+    #         is_matched = True
+    #         response = response[ans_idx + len(ans_marker):].strip()
+    #         if response.endswith("\n"):
+    #             response = response[:-2]
 
-    for ans_marker in ["is answer", "is the answer", "are answers", "are the answers"]:
-        ans_idx = response.lower().rfind(ans_marker)
-        if ans_idx != -1:
-            is_matched = True
-            response = response[:ans_idx].strip()
-            if response.endswith("\n"):
-                response = response[:-2]
+    # for ans_marker in ["is answer", "is the answer", "are answers", "are the answers"]:
+    #     ans_idx = response.lower().rfind(ans_marker)
+    #     if ans_idx != -1:
+    #         is_matched = True
+    #         response = response[:ans_idx].strip()
+    #         if response.endswith("\n"):
+    #             response = response[:-2]
 
     # Find boxed
     ans_boxed = _last_boxed_only_string(response)
