@@ -93,10 +93,12 @@ def _compute_score(solution_str, ground_truth, extra_info, format_reward=0.1, an
         reward_log.append(solution_code + "\n" + ground_truth["functional"])
     else:
         reward_log.append(solution_code)
-
-    if "pytest" in ground_truth or "functional" in ground_truth:
+    
+    if "pytest" in ground_truth or "functional" in ground_truth or "solution_file" in ground_truth:
         if "functional" in ground_truth:
             succ, output = code_exec(solution_code + "\n" + ground_truth["functional"])
+        elif "solution_file" in ground_truth:
+            succ, output = code_exec(solution_code, solution=ground_truth["solution_file"])
         else:  # pytest
             succ, output = code_exec(solution_code, pytest=ground_truth["pytest"])
         if not succ:
@@ -132,7 +134,7 @@ def _compute_score(solution_str, ground_truth, extra_info, format_reward=0.1, an
                     return format_reward, "\n".join(reward_log)
     else:
         raise ValueError(
-            f"Current supports for ground-truth are ['functional', 'inputs/outputs'] -- No idea what's: {ground_truth = }"
+            "Current supports for ground-truth are ['pytest', 'functional', 'solution_file', 'inputs/outputs'] -- No idea what's: {ground_truth = }"
         )
 
     reward_log.append("+" * 16 + "Test Execution Passed! (Output)" + "+" * 16)
