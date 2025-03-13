@@ -143,6 +143,14 @@ class vLLMRollout(BaseRollout):
         # if len(old_sampling_params_args):
         for key, value in old_sampling_params_args.items():
             setattr(self.sampling_params, key, value)
+    
+    @staticmethod
+    @contextmanager
+    def timer():
+        import time
+        start = end = time.perf_counter()
+        yield lambda: end - start
+        end = time.perf_counter()
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
@@ -179,7 +187,7 @@ class vLLMRollout(BaseRollout):
             kwargs['n'] = prompts.meta_info['num_samples']
 
         # users can customize different sampling_params at different run
-        with self.update_sampling_params(**kwargs):
+        with self.update_sampling_params(**kwargs), self.timer() as t:
             outputs = self.inference_engine.generate(
                 prompts=None,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
@@ -218,6 +226,10 @@ class vLLMRollout(BaseRollout):
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
         response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
+
+        tokens_per_second = torch.sum(response_attention_mask).item() / t()
+        import os
+        print(f"Tokens per second: {tokens_per_second} t/s on device {os.environ["CUDA_VISIBLE_DEVICES"]} on host {os.uname().nodename}", flush=True)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
         batch = TensorDict(
