@@ -113,8 +113,10 @@ def main_task(config, compute_score=None):
     reward_manager_name = config.reward_model.get("reward_manager", "naive")
     if reward_manager_name == "naive":
         from verl.workers.reward_manager import NaiveRewardManager
-
         reward_manager_cls = NaiveRewardManager
+    elif reward_manager_name == "naive_parallel":
+        from verl.workers.reward_manager import NaiveParallelRewardManager
+        reward_manager_cls = NaiveParallelRewardManager
     elif reward_manager_name == "prime":
         from verl.workers.reward_manager import PrimeRewardManager
 
