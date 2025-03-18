@@ -58,6 +58,11 @@ def _default_compute_score(
             from . import prime_math
 
             res = prime_math.compute_score(solution_str, ground_truth)[0]
+
+        elif reward_metric == "math_llm_judge":
+            from . import math_llm_judge
+            res = math_llm_judge.compute_score(solution_str, ground_truth, extra_info=extra_info)
+            
         elif reward_metric == "math_verify":
             from .orz.math_utils_sync import is_equal, solution2answer
 
