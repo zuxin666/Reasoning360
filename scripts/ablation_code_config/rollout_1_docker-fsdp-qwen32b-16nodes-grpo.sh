@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --partition=mbzuai
 #SBATCH --job-name=rl
-#SBATCH --nodes=8
-#SBATCH --ntasks=8
+#SBATCH --nodes=16
+#SBATCH --ntasks=16
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --exclusive
@@ -37,8 +37,8 @@ train_files="[${codegen_train_path}]"
 test_files="[${codegen_test_path}]"
 
 # Model config
-# BASE_MODEL=Qwen/Qwen2.5-32B
-BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
+BASE_MODEL=Qwen/Qwen2.5-32B
+# BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
 # BASE_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
@@ -48,10 +48,10 @@ BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
 
 # Parallel config
 SP_SIZE=1
-ROLLOUT_TP_SIZE=4
+ROLLOUT_TP_SIZE=8
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=zhoujun-docker-code-${BASE_MODEL##*/}-${SLURM_JOB_ID}
+WANDB_EXPERIMENT_NAME=zj-docker-code-${BASE_MODEL##*/}-${SLURM_JOB_ID}
 
 echo "Node list: ${nodes[@]}"
 
