@@ -52,6 +52,18 @@ ssh -L 8501:localhost:8501 username@cluster_node
 Then access `127.0.0.1:8501`
 
 
+## Data analysis
+
+Split a dataset, and generate multiple responses with SGLang.
+
+```python transform_dataset.py --dataset SynthLabsAI/Big-Math-RL-Verified --output big-math-rl-verified_problems --splits 64```
+
+install SGLang from github (need to be after this [PR](https://github.com/sgl-project/sglang/pull/3754) to avoid a bug in batch inference)
+
+```bash data_analysis/sgl_generate.sh```
+
+The script will automatically launch 64 jobs (each on one node) and monitor them. If some job fails unexpectedly, you can launch the job in `temp_job_scripts` and add the new job id to `sgl_job_ids.txt` so that it'll be monitored.
+
 ## Usage (docker+fsdp/megatron)
 Multi-node training 7B w/ FSDP backend:
 ```bash

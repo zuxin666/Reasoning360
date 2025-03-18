@@ -51,12 +51,17 @@ def _default_compute_score(
         "nanoverl/olympiad_bench",
         "orz_math_57k_collected.json",
         "examples/data_preprocess/orz_math_57k_collected.json",
-        
+        "SynthLabsAI/Big-Math-RL-Verified",
     ]:
         if reward_metric == "prime_math" or reward_metric is None:
             from . import prime_math
 
             res = prime_math.compute_score(solution_str, ground_truth)[0]
+
+        elif reward_metric == "math_llm_judge":
+            from . import math_llm_judge
+            res = math_llm_judge.compute_score(solution_str, ground_truth, extra_info=extra_info)
+            
         elif reward_metric == "math_verify":
             from .orz.math_utils_sync import is_equal, solution2answer
 

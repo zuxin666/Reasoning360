@@ -121,6 +121,10 @@ def main_task(config, compute_score=None):
         from verl.workers.reward_manager import PrimeRewardManager
 
         reward_manager_cls = PrimeRewardManager
+    elif reward_manager_name == "llm_judge":
+        from verl.workers.reward_manager import LLMJudgeRewardManager
+
+        reward_manager_cls = LLMJudgeRewardManager
     else:
         raise NotImplementedError
     reward_fn = reward_manager_cls(

@@ -18,6 +18,30 @@ Call grade_answer(given_answer: str, ground_truth: str).
 
 FROM: https://github.com/openai/prm800k/blob/main/prm800k/grading/grader.py
 """
+
+input_template = """You are a teacher and your task is to grade the student's answer with the reference answer.
+
+Question: {QUESTION}
+
+Student's Answer: {STUDENT_ANSWER}
+
+Reference Answer: {REFERENCE_ANSWER}
+
+You only need to refer to the reference answer to grade the student's answer. Sometimes the student's answer is expressed in a different way from the reference answer, but the meaning is the same, and you should still consider it correct. If they are not equivalent in mathematical sense, you should consider it incorrect.
+
+Note 1: You don't need to solve the problem yourself. Just grade the student's answer based on the reference answer.
+
+Note 2: If the reference answer is a range, please make sure the student's answer is strictly identical, including the open or closed interval.
+
+Note 3: If the reference answer is an expression and it looks like the student's answer is equivalent to the reference answer, you should present the derivation process to check if they are equivalent.
+
+Note 4: If the reference answer includes multiple solutions, please make sure the student's answer covers all of them.
+
+Please provide a brief explanation (a few sentences) of your grading process and put your final grade in the following format:
+
+Final Grade: CORRECT or INCORRECT
+"""
+
 import re
 import sympy
 from pylatexenc import latex2text
@@ -25,6 +49,8 @@ from sympy.parsing import sympy_parser
 
 from . import math_normalize
 from .grader import math_equal
+
+import requests
 
 # import math_normalize
 # from grader import math_equal
@@ -335,55 +361,47 @@ def _last_boxed_only_string(string):
 def match_answer(response):
     is_matched = False
     response = response.split("</think>")[-1]
-    # for ans_marker in ['answer:', "answer is", "answers are"]:
-    #     ans_idx = response.lower().rfind(ans_marker)
-    #     if ans_idx != -1:
-    #         is_matched = True
-    #         response = response[ans_idx + len(ans_marker):].strip()
-    #         if response.endswith("\n"):
-    #             response = response[:-2]
-
-    # for ans_marker in ["is answer", "is the answer", "are answers", "are the answers"]:
-    #     ans_idx = response.lower().rfind(ans_marker)
-    #     if ans_idx != -1:
-    #         is_matched = True
-    #         response = response[:ans_idx].strip()
-    #         if response.endswith("\n"):
-    #             response = response[:-2]
 
     # Find boxed
     ans_boxed = _last_boxed_only_string(response)
     if ans_boxed:
         is_matched = True
         response = ans_boxed
-
-    # if ". " in response:
-    #     dot_idx = response.lower().rfind(". ")
-    #     if dot_idx != -1:
-    #         response = response[:dot_idx].strip()
-
-    # for ans_marker in ['be ', "is ", "are ", "=", ": ", "get ", 'be\n', "is\n", "are\n", ":\n", "get\n"]:
-    #     ans_idx = response.lower().rfind(ans_marker)
-    #     if ans_idx != -1:
-    #         is_matched = True
-    #         response = response[ans_idx + len(ans_marker):].strip()
-    #         if response.endswith("\n"):
-    #             response = response[:-2]
-
-    # is_matched = is_matched if any([c.isdigit() for c in response]) else False  # answer must have a digit
-    # # Grade
+    
     return is_matched, response
 
 
 import math
 
+def llm_check_answer(model_output: str, ground_truth: str, question: str) -> bool:
+    # use llm to check if the answer is correct
 
-def compute_score(model_output: str, ground_truth: str) -> bool:
+    url = "http://91.239.86.146:30000/v1/chat/completions"
+    prompt = input_template.format(QUESTION=question, STUDENT_ANSWER=model_output, REFERENCE_ANSWER=ground_truth)
+    
+    data = {
+        "model": "Qwen/Qwen2.5-32B-Instruct",
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    response = requests.post(url, json=data)
+    eval_result = not "INCORRECT" in response.json()['choices'][0]['message']['content']
+    print({
+        "model_output": model_output,
+        "ground_truth": ground_truth,
+        "question": question,
+        "response": response.json()['choices'][0]['message']['content'],
+        "eval_result": eval_result,
+    })
+    return eval_result
+
+def compute_score(model_output: str,
+                  ground_truth: str,
+                  extra_info: dict) -> bool:
+    question = extra_info["question"]
     model_output = str(model_output)
     ground_truth = str(ground_truth)
 
     is_matched, extracted_model_output = match_answer(model_output)
-    format_correctness = "Step 2:" in model_output and "\\box" in model_output
 
     # grade simple algebra questions. if succeeded, return; otherwise, proceed to more complex grading
     if grade_answer(extracted_model_output, ground_truth):
@@ -399,5 +417,9 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
             is_correct = math_equal(extracted_model_output, ground_truth, timeout=True)
     except:
         is_correct = False
+        
+    if is_matched and not is_correct:
+        # use llm to check if the answer is correct
+        is_correct = llm_check_answer(extracted_model_output, ground_truth, question)
 
-    return is_correct, format_correctness, extracted_model_output
+    return is_correct, 1, extracted_model_output
