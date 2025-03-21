@@ -213,13 +213,15 @@ def main():
     total_outputs = 0
     
     for question_id, outputs in stats.items():
-        for _, count, is_correct in outputs:
+        for _, count, is_correct, llm_correct in outputs:
             if is_correct:
                 correct_outputs += count
+            if llm_correct:
+                llm_correct_outputs += count
             total_outputs += count
     
     accuracy = correct_outputs / total_outputs if total_outputs > 0 else 0
-    
+    llm_accuracy = llm_correct_outputs / total_outputs if total_outputs > 0 else 0
     # Save the final results
     output_file = "deepscale_r_stats.json"
     with open(output_file, 'w') as f:
@@ -228,7 +230,8 @@ def main():
             "summary": {
                 "correct": correct_outputs,
                 "total": total_outputs,
-                "accuracy": accuracy
+                "accuracy": accuracy,
+                "llm_accuracy": llm_accuracy
             }
         }, f, indent=2)
     
@@ -237,6 +240,7 @@ def main():
     
     print(f"Results saved to {output_file}")
     print(f"Accuracy: {accuracy:.4f} ({correct_outputs}/{total_outputs})")
+    print(f"LLM Accuracy: {llm_accuracy:.4f} ({llm_correct_outputs}/{total_outputs})")
 
 if __name__ == "__main__":
     main()
