@@ -211,7 +211,7 @@ def main():
     # Calculate overall statistics
     correct_outputs = 0
     total_outputs = 0
-    
+    llm_correct_outputs = 0
     for question_id, outputs in stats.items():
         for _, count, is_correct, llm_correct in outputs:
             if is_correct:
