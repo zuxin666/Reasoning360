@@ -1,3 +1,4 @@
+
 **/*.pt
 **/checkpoints
 **/wget-log
@@ -16,6 +17,7 @@ sglang_storage/
 temp_job_scripts/
 SLURM_Logs/
 sgl_job_ids.txt
+dedup_results/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -102,6 +104,7 @@ celerybeat-schedule
 
 # virtualenv
 venv/
+.venv/
 ENV/
 
 # Spyder project settings
@@ -125,11 +128,21 @@ tests/e2e/toy_examples/deepspeed/synchronous/output.txt
 # ckpt
 *.lock
 
+# data
+*.parquet
+
+
+# local logs
+logs
+log
+outputs
+
 # slurm
 slurm/
 
 # sandbox
 sandbox/
+backup/
 
 # data
 data
