@@ -113,21 +113,23 @@ def kodcode():  # Thanks!!! to Zhangchen and Yueqin
 
         def process_fn(example, idx):
             reference_solution = example["solution"]
-            test_code = "from solution import *\n" + example["test_code"].strip()
+            test_code = "from solution import *\n" + example["test"].strip()
             # skip it if reference solution requires libs from block_libs
             if any(lib in reference_solution for lib in block_libs):
                 return _EMPTY_RETURN_
             if any(lib in test_code for lib in block_libs):
                 return _EMPTY_RETURN_
             prompt = f"Please solve the programming task below in Python. Code should wrapped in a markdown code block.\n\n{example['question'].strip()}"
-            if example["test_entry_point"] and example["test_entry_point"].strip():
-                prompt += f"\n\nNote that the output function should be {example['test_entry_point'].strip()}."
+            if example["test_info"]:
+                prompt += f"\n\nNote that the output function should be {str(example['test_info']).strip()}."
 
             succ, err = code_exec(code=reference_solution, pytest=test_code)
             if not succ:
-                rich.print(
-                    f"[bold red]Test code failed for {example['conversation_id']}"
-                )
+                # The above code is using the `rich` library in Python to print a formatted message in the console.
+                # The message is in red color and includes the value of `example['conversation_id']`.
+                # rich.print(
+                #     f"[bold red]Test code failed for {example['conversation_id']}"
+                # )
                 print(reference_solution)
                 print(err)
                 return _EMPTY_RETURN_
@@ -154,14 +156,17 @@ def kodcode():  # Thanks!!! to Zhangchen and Yueqin
 
         return process_fn
 
+    # pick 1000 examples
+    dataset = dataset["train"].select(range(1000))
     dataset = dataset.map(
         function=make_map_fn("train"),
         with_indices=True,
         num_proc=64,
     )
-    splits = dataset["train"].train_test_split(
-        test_size=N_TESTSET_PER_DATASET, seed=666
-    )
+    # splits = dataset["train"].train_test_split(
+    #     test_size=N_TESTSET_PER_DATASET, seed=666
+    # )
+    splits = dataset.train_test_split(test_size=N_TESTSET_PER_DATASET, seed=666)
     train_dataset = splits["train"].shuffle(seed=666)
     test_dataset = splits["test"]
     return train_dataset, test_dataset
@@ -324,13 +329,10 @@ for i, o in zip(_inputs, _outputs):
         print(f"{t = }")
         t["extra_info"]["split"] = "test"
 
+    print(f"Taco train set: {train_dataset}")
+    print(f"Taco test set: {test_dataset}")
+
     return train_dataset, test_dataset
-
-
-# Some tests are very broken and needs verification
-def codecontests():
-    rich.print(Rule("Loading deepmind/code_contests..."))
-    dataset = load_dataset("deepmind/code_contests")
     train_dataset = dataset["train"]
     test_dataset = dataset["valid"][:N_TESTSET_PER_DATASET]
 
@@ -474,6 +476,8 @@ def leetcode2k():
 
     train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True)
     test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
+    print(f"Leetcode2k train set: {train_dataset}")
+    print(f"Leetcode2k test set: {test_dataset}")
     return train_dataset, test_dataset
 
 
@@ -492,7 +496,8 @@ if __name__ == "__main__":
     train_datasets = []
     test_datasets = []
 
-    dataset_makes = [leetcode2k, taco]
+    # dataset_makes = [leetcode2k, taco]
+    dataset_makes = [kodcode]
     names = "-".join([make.__name__ for make in dataset_makes])
 
     for train, test in [make() for make in dataset_makes]:
