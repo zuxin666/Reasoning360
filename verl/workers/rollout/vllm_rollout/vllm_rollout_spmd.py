@@ -24,6 +24,7 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
+import numpy as np
 from typing import List
 from contextlib import contextmanager
 from omegaconf import DictConfig
@@ -31,7 +32,7 @@ import torch
 import torch.distributed
 from tensordict import TensorDict
 from torch import nn
-
+from typing import Any, Union
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_2d_list_to_length
 from verl.workers.rollout.base import BaseRollout
@@ -54,6 +55,15 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
     ]
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
+
+
+def _repeat_interleave(
+    value: Union[torch.Tensor, np.ndarray], repeats: int
+) -> Union[torch.Tensor, List[Any]]:
+    if isinstance(value, torch.Tensor):
+        return value.repeat_interleave(repeats, dim=0)
+    else:
+        return np.repeat(value, repeats, axis=0)
 
 
 class vLLMRollout(BaseRollout):
@@ -114,6 +124,7 @@ class vLLMRollout(BaseRollout):
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
+            enable_prefix_caching=True,
         )
 
         # Offload vllm model to reduce peak memory usage
@@ -121,7 +132,7 @@ class vLLMRollout(BaseRollout):
 
         kwargs = dict(
             n=1,
-            logprobs=1,  # can be set to 0 and let actor to recompute
+            logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
         )
 
@@ -183,12 +194,39 @@ class vLLMRollout(BaseRollout):
 
         batch_size = idx.size(0)
 
-        idx_list = []
-        # parse idx from torch.Tensor to List[List[str]]
-        for i in range(batch_size):
-            idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
+        non_tensor_batch = prompts.non_tensor_batch
+        if "raw_prompt_ids" not in non_tensor_batch:
+            non_tensor_batch["raw_prompt_ids"] = np.array(
+                [
+                    _pre_process_inputs(self.pad_token_id, idx[i])
+                    for i in range(batch_size)
+                ],
+                dtype=object,
+            )
+
+        if batch_size != len(non_tensor_batch["raw_prompt_ids"]):
+            raise RuntimeError("vllm sharding manager is not work properly.")
+
+        if "multi_modal_data" in non_tensor_batch:
+            vllm_inputs = []
+            for raw_prompt_ids, multi_modal_data in zip(
+                non_tensor_batch.pop("raw_prompt_ids"),
+                non_tensor_batch.pop("multi_modal_data"),
+            ):
+                vllm_inputs.append(
+                    {
+                        "prompt_token_ids": raw_prompt_ids,
+                        "multi_modal_data": multi_modal_data,
+                    }
+                )
+        else:
+            vllm_inputs = [
+                {"prompt_token_ids": raw_prompt_ids}
+                for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
+            ]
 
         do_sample = prompts.meta_info.get("do_sample", True)
+        is_validate = prompts.meta_info.get("validate", False)
         if not do_sample:
             kwargs = {
                 "best_of": 1,
@@ -198,44 +236,59 @@ class vLLMRollout(BaseRollout):
                 "temperature": 0,
                 "n": 1,  # if greedy, only 1 response
             }
+        elif is_validate:
+            # TODO: try **
+            kwargs = {
+                "top_k": self.config.val_kwargs.top_k,
+                "top_p": self.config.val_kwargs.top_p,
+                "temperature": self.config.val_kwargs.temperature,
+                "n": 1,  # if validate, already repeat in ray_trainer
+            }
         if "num_samples" in prompts.meta_info:
             kwargs["n"] = prompts.meta_info["num_samples"]
 
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs), self.timer() as t:
             outputs = self.inference_engine.generate(
-                prompts=None,  # because we have already convert it to prompt token id
+                prompts=vllm_inputs,  # because we have already convert it to prompt token id
                 sampling_params=self.sampling_params,
-                prompt_token_ids=idx_list,
                 use_tqdm=False,
             )
 
-        # TODO(sgm): disable logprob when recompute_log_prob is enable
-        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
+            # TODO(sgm): disable logprob when recompute_log_prob is enable
+            # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
-        response = []
-        for output in outputs:
-            for sample_id in range(len(output.outputs)):
-                response.append(output.outputs[sample_id].token_ids)
+            response = []
+            for output in outputs:
+                for sample_id in range(len(output.outputs)):
+                    response.append(output.outputs[sample_id].token_ids)
 
-        response = pad_2d_list_to_length(
-            response, self.pad_token_id, max_length=self.config.response_length
-        ).to(idx.device)
+            response = pad_2d_list_to_length(
+                response, self.pad_token_id, max_length=self.config.response_length
+            ).to(idx.device)
 
-        n = kwargs["n"]
-        n = prompts.meta_info.get("num_samples", self.config.n)
-        if n > 1 and do_sample:
-            idx = idx.repeat_interleave(n, dim=0)
-            attention_mask = attention_mask.repeat_interleave(n, dim=0)
-            position_ids = position_ids.repeat_interleave(n, dim=0)
-            batch_size = batch_size * n
-        seq = torch.cat([idx, response], dim=-1)
+            n = kwargs["n"]
+            if n > 1 and do_sample:
+                idx = _repeat_interleave(idx, n)
+                attention_mask = _repeat_interleave(attention_mask, n)
+                position_ids = _repeat_interleave(position_ids, n)
+                batch_size = batch_size * n
+                if "multi_modal_inputs" in non_tensor_batch.keys():
+                    non_tensor_batch["multi_modal_inputs"] = _repeat_interleave(
+                        non_tensor_batch["multi_modal_inputs"], n
+                    )
+
+            seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(
             1, response_length + 1, device=position_ids.device
         )
-        delta_position_id = delta_position_id.unsqueeze(0).repeat(batch_size, 1)
+        delta_position_id = delta_position_id.unsqueeze(0).expand(batch_size, -1)
+        if position_ids.dim() == 3:  # qwen2vl mrope
+            delta_position_id = delta_position_id.view(batch_size, 1, -1).expand(
+                batch_size, 3, -1
+            )
 
         # TODO(sgm): fix position_ids on right_pad
         # prompt: left pad + response: right pad
@@ -252,7 +305,7 @@ class vLLMRollout(BaseRollout):
         import os
 
         print(
-            f"Tokens per second: {tokens_per_second} t/s on device {os.environ['CUDA_VISIBLE_DEVICES']} on host {os.uname().nodename}",
+            f'Tokens per second: {tokens_per_second} t/s on device {os.environ["CUDA_VISIBLE_DEVICES"]} on host {os.uname().nodename}',
             flush=True,
         )
 
@@ -276,4 +329,4 @@ class vLLMRollout(BaseRollout):
         ):
             self.inference_engine.free_cache_engine()
 
-        return DataProto(batch=batch)
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

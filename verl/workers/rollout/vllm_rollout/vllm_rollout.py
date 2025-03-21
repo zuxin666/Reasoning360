@@ -85,26 +85,33 @@ class vLLMRollout(BaseRollout):
         assert (
             tensor_parallel_size <= torch.distributed.get_world_size()
         ), "tensor parallel size should be less than or equal to the world size"
-        max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
+        max_num_batched_tokens = int(self.config.get("max_num_batched_tokens", 8192))
 
         if kwargs.get("train_tp", None) is not None:
             # deployed with megatron
             import os
 
-            os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
-            os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-            train_tp = kwargs.get("train_tp", None)
-            num_tp_per_train_tp = train_tp // tensor_parallel_size
-            if vllm_version in ("0.4.2", "0.5.4", "0.6.3"):
-                vllm_ps.initialize_parallel_state(
-                    tensor_model_parallel_size=tensor_parallel_size,
-                    num_tp_per_train_tp=num_tp_per_train_tp,
-                )
-
         assert (
             model_hf_config.max_position_embeddings
             >= config.prompt_length + config.response_length
         ), "model context length should be greater than total sequence length"
+
+        max_model_len = (
+            self.config.max_model_len
+            if self.config.max_model_len
+            else config.prompt_length + config.response_length
+        )
+        max_model_len = int(max_model_len)
+
+        if (
+            max_num_batched_tokens < max_model_len
+            and self.config.enable_chunked_prefill
+        ):
+            raise ValueError(
+                "Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
+                             please increase max_num_batched_tokens or disable chunked prefill"
+            )
+
         self.inference_engine = LLM(
             actor_module,
             tokenizer=tokenizer,
@@ -114,7 +121,7 @@ class vLLMRollout(BaseRollout):
             enforce_eager=config.enforce_eager,
             gpu_memory_utilization=config.gpu_memory_utilization,
             skip_tokenizer_init=False,
-            max_model_len=config.prompt_length + config.response_length,
+            max_model_len=max_model_len,
             load_format=config.load_format,
             disable_log_stats=config.disable_log_stats,
             max_num_batched_tokens=max_num_batched_tokens,
@@ -126,7 +133,7 @@ class vLLMRollout(BaseRollout):
 
         kwargs = dict(
             n=1,
-            logprobs=1,  # can be set to 0 and let actor to recompute
+            logprobs=0,  # can be set to 0 and let actor to recompute
             max_tokens=config.response_length,
         )
 
@@ -191,6 +198,7 @@ class vLLMRollout(BaseRollout):
             idx_list.append(_pre_process_inputs(self.pad_token_id, idx[i]))
 
         do_sample = prompts.meta_info.get("do_sample", True)
+        is_validate = prompts.meta_info.get("validate", False)
         if not do_sample:
             kwargs = {
                 "best_of": 1,
@@ -200,6 +208,15 @@ class vLLMRollout(BaseRollout):
                 "temperature": 0,
                 "n": 1,  # if greedy, only 1 response
             }
+        elif is_validate:
+            # TODO: try **
+            kwargs = {
+                "top_k": self.config.val_kwargs.top_k,
+                "top_p": self.config.val_kwargs.top_p,
+                "temperature": self.config.val_kwargs.temperature,
+                "n": 1,  # if validate, already repeat in ray_trainer
+            }
+
         if "num_samples" in prompts.meta_info:
             kwargs["n"] = prompts.meta_info["num_samples"]
 
@@ -212,26 +229,25 @@ class vLLMRollout(BaseRollout):
                 use_tqdm=False,
             )
 
-        # TODO(sgm): disable logprob when recompute_log_prob is enable
-        # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
-        response = output[0].to(idx.device)
-        log_probs = output[1].to(idx.device)
+            # TODO(sgm): disable logprob when recompute_log_prob is enable
+            # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
+            response = output[0].to(idx.device)
+            # log_probs = output[1].to(idx.device)
 
-        if response.shape[1] < self.config.response_length:
-            response = pad_sequence_to_length(
-                response, self.config.response_length, self.pad_token_id
-            )
-            log_probs = pad_sequence_to_length(
-                log_probs, self.config.response_length, self.pad_token_id
-            )
+            if response.shape[1] < self.config.response_length:
+                response = pad_sequence_to_length(
+                    response, self.config.response_length, self.pad_token_id
+                )
+                # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
-        n = kwargs["n"]
-        if n > 1 and do_sample:
-            idx = idx.repeat_interleave(n, dim=0)
-            attention_mask = attention_mask.repeat_interleave(n, dim=0)
-            position_ids = position_ids.repeat_interleave(n, dim=0)
-            batch_size = batch_size * n
-        seq = torch.cat([idx, response], dim=-1)
+            n = kwargs["n"]
+            # utilize current sampling params
+            if n > 1 and do_sample:
+                idx = idx.repeat_interleave(n, dim=0)
+                attention_mask = attention_mask.repeat_interleave(n, dim=0)
+                position_ids = position_ids.repeat_interleave(n, dim=0)
+                batch_size = batch_size * n
+            seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
         delta_position_id = torch.arange(
@@ -254,7 +270,7 @@ class vLLMRollout(BaseRollout):
         import os
 
         print(
-            f"Tokens per second: {tokens_per_second} t/s on device {os.environ['CUDA_VISIBLE_DEVICES']} on host {os.uname().nodename}",
+            f'Tokens per second: {tokens_per_second} t/s on device {os.environ["CUDA_VISIBLE_DEVICES"]} on host {os.uname().nodename}',
             flush=True,
         )
 
