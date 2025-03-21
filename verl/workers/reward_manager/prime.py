@@ -13,8 +13,10 @@
 # limitations under the License.
 
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from traceback import print_exc
+from multiprocessing import cpu_count
 
 import torch
 
@@ -23,7 +25,7 @@ from verl.utils.reward_score import _default_compute_score
 
 
 async def single_compute_score(
-    evaluation_func, completion, reference, task, executor, timeout=300.0
+    evaluation_func, completion, reference, task, extra_info, executor, timeout=300
 ):
     loop = asyncio.get_running_loop()
     try:
@@ -33,7 +35,7 @@ async def single_compute_score(
                 loop.run_in_executor(
                     executor,
                     partial(
-                        evaluation_func, task, completion, reference
+                        evaluation_func, task, completion, reference, extra_info
                     ),  # Ensure synchronous
                 ),
                 timeout=timeout,
@@ -41,35 +43,44 @@ async def single_compute_score(
         ]
         return await asyncio.gather(*tasks)
     except asyncio.TimeoutError:
-        print(f"Timeout occurred for completion: {completion}")
+        print(f"Timeout occurred for completion: {completion[:64]}...")
         return None  # Default value for timed-out rows
-    except Exception as e:
-        print(f"Error processing completion: {completion[:10]}, Error: {e}")
+    except Exception:
+        print_exc()
         return None  # Default value for failed rows
 
 
 async def parallel_compute_score_async(
-    evaluation_func, completions, references, tasks, num_processes=64
+    evaluation_func, completions, references, tasks, extra_infos=None, num_processes=64
 ):
     scores = []
-    with ProcessPoolExecutor(max_workers=num_processes) as executor:
+    with ThreadPoolExecutor(max_workers=num_processes) as executor:
         # Create tasks for all rows
         tasks_async = [
             single_compute_score(
-                evaluation_func, completion, reference, task, executor, timeout=300.0
+                evaluation_func,
+                completion,
+                reference,
+                task,
+                extra_info=extra_info,
+                executor=executor,
+                timeout=600,
             )
-            for completion, reference, task in zip(completions, references, tasks)
+            for completion, reference, task, extra_info in zip(
+                completions, references, tasks, extra_infos
+            )
         ]
         # to prevent very occasional starvation caused by some anomalous programs ( like infinite loop ), the exceptions in async programs will instantly halt the evaluation, and all summoned processes will be killed.
-        try:
-            results = await asyncio.gather(*tasks_async, return_exceptions=False)
-        except:
-            for pid, proc in executor._processes.items():
-                try:
-                    proc.kill()
-                except Exception as kill_err:
-                    print("shut down failed: " + str(kill_err))
-            raise
+        results = await asyncio.gather(*tasks_async, return_exceptions=False)
+        # try:
+        #     results = await asyncio.gather(*tasks_async, return_exceptions=False)
+        # except:
+        #     # for pid, proc in executor._processes.items():
+        #     #     try:
+        #     #         proc.kill()
+        #     #     except Exception as kill_err:
+        #     #         print('shut down failed: ' + str(kill_err))
+        #     raise
 
     # Process results
     for result, completion, reference, task in zip(
@@ -115,34 +126,44 @@ class PrimeRewardManager:
         valid_response_length = data.batch["attention_mask"][:, prompt_length:].sum(
             dim=-1
         )
-        sequences_str = self.tokenizer.batch_decode(
+        sequences_strs = self.tokenizer.batch_decode(
             response_ids, skip_special_tokens=True
         )
-        ground_truth = [
+        ground_truths = [
             data_item.non_tensor_batch["reward_model"]["ground_truth"]
             for data_item in data
         ]
         data_sources = data.non_tensor_batch["data_source"]
+        extra_infos = [
+            data_item.non_tensor_batch.get("extra_info", None) for data_item in data
+        ]
 
-        assert len(sequences_str) == len(ground_truth) == len(data_sources)
+        # num_processes = max(cpu_count(), 1)
+        num_processes = 16
+
+        print(
+            f"Start to compute rewards for {len(sequences_strs)} samples over {num_processes} processes."
+        )
+        assert len(sequences_strs) == len(ground_truths) == len(data_sources)
         try:
             scores = asyncio.run(
                 parallel_compute_score_async(
                     self.compute_score,
-                    sequences_str,
-                    ground_truth,
+                    sequences_strs,
+                    ground_truths,
                     data_sources,
-                    num_processes=64,
+                    extra_infos=extra_infos,
+                    num_processes=num_processes,
                 )
             )
         except asyncio.TimeoutError as e:
             print("Global timeout in reward computing! Setting all as 0.")
-            scores = [0.0 for _ in range(len(sequences_str))]
+            scores = [0.0 for _ in range(len(sequences_strs))]
         except Exception as e:
             print(
                 f"Unexpected error in batched reward computing. Setting all as 0.: {e}"
             )
-            scores = [0.0 for _ in range(len(sequences_str))]
+            scores = [0.0 for _ in range(len(sequences_strs))]
 
         for i in range(len(data)):
             data_source = data_sources[i]
@@ -153,6 +174,6 @@ class PrimeRewardManager:
 
             if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
-                print(sequences_str)
+                # print(sequences_str)
 
         return reward_tensor
