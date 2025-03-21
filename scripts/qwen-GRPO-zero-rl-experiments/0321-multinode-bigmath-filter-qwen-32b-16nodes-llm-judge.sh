@@ -60,18 +60,18 @@ address_head=$head_node_ip:$port
 WORKING_DIR=${HOME}/Reasoning360
 DATA_DIR=${WORKING_DIR}/data
 # math_train_path=${DATA_DIR}/math/train.parquet
-orz_train_path=${DATA_DIR}/deepscaler_preview_zero_style_mar21_filter/train.parquet
+orz_train_path=${DATA_DIR}/bigmath_preview_zero_style_filter/train.parquet
 # math_test_path=${DATA_DIR}/math/test.parquet
-aime_test_path=${DATA_DIR}/deepscaler_preview_zero_style_mar21_filter/aime_repeated_8x.parquet
-amc_test_path=${DATA_DIR}/deepscaler_preview_zero_style_mar21_filter/amc_repeated_4x.parquet
-math_test_path=${DATA_DIR}/deepscaler_preview_zero_style_mar21_filter/math.parquet
+aime_test_path=${DATA_DIR}/bigmath_preview_zero_style_filter/aime_repeated_8x.parquet
+amc_test_path=${DATA_DIR}/bigmath_preview_zero_style_filter/amc_repeated_4x.parquet
+math_test_path=${DATA_DIR}/bigmath_preview_zero_style_filter/math.parquet
 
 train_files="['$orz_train_path']"
 test_files="['$aime_test_path', '$amc_test_path', '$math_test_path']"
 # BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
 BASE_MODEL=Qwen/Qwen2.5-32B
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=deepscalar-filter-qwen-32b-16nodes-run-2-llm-judge-${BASE_MODEL##*/}
+WANDB_EXPERIMENT_NAME=bigmath-filter-qwen-32b-16nodes-llm-judge-${BASE_MODEL##*/}
 
 export worker_num=$SLURM_NNODES
 # export worker_num=4
@@ -148,7 +148,7 @@ sleep 10
     +trainer.val_before_train=False \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=$worker_num \
-    trainer.save_freq=10 \
+    trainer.save_freq=20 \
     trainer.test_freq=5 \
     trainer.total_epochs=3 \
     trainer.val_generations_to_log_to_wandb=30 \

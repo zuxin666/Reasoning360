@@ -412,7 +412,8 @@ def llm_check_answer(model_output: str, ground_truth: str, question: str) -> boo
         "messages": [{"role": "user", "content": prompt}],
     }
     response = requests.post(url, json=data)
-    eval_result = not "INCORRECT" in response.json()['choices'][0]['message']['content']
+    eval_result = not "INCORRECT" in response.json()['choices'][0]['message']['content'] \
+        and "CORRECT" in response.json()['choices'][0]['message']['content']
     # print({
     #     "model_output": model_output,
     #     "ground_truth": ground_truth,

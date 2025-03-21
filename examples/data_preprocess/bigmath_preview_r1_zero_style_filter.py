@@ -107,14 +107,12 @@ def extract_solution(solution_str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="data/deepscaler_preview_zero_style_mar21_filter")
+    parser.add_argument("--local_dir", default="data/bigmath_preview_zero_style_filter")
     parser.add_argument("--hdfs_dir", default=None)
 
     args = parser.parse_args()
 
-    train_data_source = "SDSB/deepscale_partial_mar21_filtered_basic"
-    
-    print(f"Loading the {train_data_source} dataset from huggingface...", flush=True)
+    train_data_source = "SDSB/big_math_partial_mar21_filtered_basic"
     test_data_sources = [
         "nanoverl/minerva",
         "SDSB/aime_repeated_8x",
@@ -122,15 +120,16 @@ if __name__ == "__main__":
         "nanoverl/olympiad_bench",
         "nanoverl/math",
     ]
-    print(f"Loading the {test_data_sources} dataset from huggingface...", flush=True)
     train_dataset = datasets.load_dataset(
         train_data_source, trust_remote_code=True, split="train"
     )
+    print(f"Loading the {train_data_source} dataset from huggingface...", flush=True)
     test_datasets = [
         datasets.load_dataset(test_data_source, trust_remote_code=True, split="test")
         for test_data_source in test_data_sources
     ]
 
+    print(f"Loading the {test_data_sources} dataset from huggingface...", flush=True)
     instruction_following = (
         "Let's think step by step and output the final answer within \\boxed{}."
     )
@@ -158,7 +157,7 @@ Assistant: <think>
                 "ability": "math",
                 "apply_chat_template": False,
                 "reward_model": {"style": "rule", "ground_truth": answer},
-                "extra_info": {"split": split,
+                "extra_info": {"split": split, 
                                "index": idx,
                                "question": question},
             }
