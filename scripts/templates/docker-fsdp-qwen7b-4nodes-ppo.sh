@@ -51,11 +51,11 @@ BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
 # BASE_MODEL=meta-llama/Meta-Llama-3-8B-Instruct
 
 # Parallel config
-TP_SIZE=2
+TP_SIZE=8
 
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=taylor-7B-docker-ppo_n16-math-${BASE_MODEL##*/}-${SLURM_JOB_ID}
+WANDB_EXPERIMENT_NAME=taylor-7B-docker-ppo-math-${BASE_MODEL##*/}-${SLURM_JOB_ID}
 
 echo "Node list: ${nodes[@]}"
 
@@ -89,6 +89,7 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     data.val_batch_size=2048 \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
@@ -101,11 +102,12 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.max_num_seqs=256 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${TP_SIZE} \
-    actor_rollout_ref.rollout.n=16 \
+    actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     critic.optim.lr=1e-5 \
     critic.model.enable_gradient_checkpointing=True \
     critic.model.path=$BASE_MODEL \
+    critic.model.use_remove_padding=True \
     critic.ppo_mini_batch_size=128 \
     critic.ppo_micro_batch_size_per_gpu=16 \
     critic.model.fsdp_config.param_offload=False \
@@ -120,7 +122,7 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     trainer.nnodes=$worker_num \
     trainer.save_freq=25 \
     trainer.test_freq=5 \
-    trainer.total_epochs=10"
+    trainer.total_epochs=15"
 
 node_i=${nodes[worker_num - 1]}
 echo "================================================"

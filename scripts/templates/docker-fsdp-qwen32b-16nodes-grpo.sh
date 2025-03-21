@@ -26,7 +26,8 @@ export PYTHONPATH=/Reasoning360:$PYTHONPATH
 
 WORKING_DIR=${HOME}/Reasoning360
 MOUNT_WORKING_DIR=/Reasoning360
-IMAGE_PATH=${HOME}/Reasoning360/docker/images/verl_megatron_v2.sqsh
+# IMAGE_PATH=${HOME}/Reasoning360/docker/images/verl_megatron_v2.sqsh
+IMAGE_PATH=${HOME}/Reasoning360/docker/images/verl_v3.sqsh
 
 # Data config
 DATA_DIR=${MOUNT_WORKING_DIR}/data
@@ -55,7 +56,7 @@ SP_SIZE=2
 ROLLOUT_TP_SIZE=8
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=zhoujun-docker-math-${BASE_MODEL##*/}-${SLURM_JOB_ID}
+WANDB_EXPERIMENT_NAME=taylor-32B-docker-grpo-math-${BASE_MODEL##*/}-${SLURM_JOB_ID}
 
 echo "Node list: ${nodes[@]}"
 
@@ -116,8 +117,8 @@ cmd="python3 /Reasoning360/verl/trainer/main_ppo.py  --config-path=/Reasoning360
     +trainer.val_before_train=True \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=$worker_num \
-    trainer.save_freq=3 \
-    trainer.test_freq=3 \
+    trainer.save_freq=25 \
+    trainer.test_freq=5 \
     trainer.total_epochs=5"
 
 node_i=${nodes[worker_num - 1]}
