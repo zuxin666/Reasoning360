@@ -28,6 +28,9 @@ def _default_compute_score(
         # Use Math-Verify (https://github.com/huggingface/Math-Verify) for better evaluation accuracy
         from . import math_verify
         res = math_verify.compute_score(solution_str, ground_truth)
+    elif data_source == 'math_dapo':
+        from . import math_dapo
+        res = math_dapo.compute_score(solution_str, ground_truth)
     elif data_source in [
         "numina_aops_forum",
         "numina_synthetic_math",
@@ -97,7 +100,9 @@ def _default_compute_score(
     else:
         raise NotImplementedError
 
-    if isinstance(res, (int, float, bool)):
+    if isinstance(res, dict):
+        return res
+    elif isinstance(res, (int, float, bool)):
         return float(res)
     else:
         return float(res[0])
