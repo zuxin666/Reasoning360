@@ -4,7 +4,6 @@ data:
   val_files: ~/data/rlhf/gsm8k/test.parquet
   prompt_key: prompt
   reward_fn_key: data_source
-  filter_overlong_prompts: True
   truncation: 'error'
   max_prompt_length: 512
   max_response_length: 512
@@ -15,7 +14,6 @@ data:
   return_raw_chat: False
   shuffle: True
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
-  truncation: error
   image_key: images
 
 actor_rollout_ref:

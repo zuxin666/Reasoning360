@@ -364,7 +364,7 @@ class RayPPOTrainer(object):
             assert config.data.max_response_length >= overlong_buffer_cfg.len>0, \
                 f"{config.data.max_response_length=} / {overlong_buffer_cfg.len=}"
         else:
-            assert overlong_buffer_cfg.len < 0, f"{overlong_buffer_cfg.len=} > 0 but P{overlong_buffer_cfg.enable=}"
+            assert overlong_buffer_cfg.len <= 0, f"{overlong_buffer_cfg.len=} > 0 but P{overlong_buffer_cfg.enable=}"
             assert overlong_buffer_cfg.penalty_factor <= 0, f"{overlong_buffer_cfg.penalty_factor} > 0 but {overlong_buffer_cfg.enable=}"
             assert overlong_buffer_cfg.log == False, f"{overlong_buffer_cfg.log=} == True but {overlong_buffer_cfg.enable=}"
         

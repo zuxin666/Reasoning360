@@ -239,8 +239,19 @@ class vLLMRollout(BaseRollout):
                     response, self.config.response_length, self.pad_token_id
                 )
                 # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
-
-            n = kwargs["n"]
+            
+            try:
+                n = kwargs["n"]
+            except KeyError:
+                try:
+                    n = kwargs['n']
+                except KeyError:
+                    print("KWARGS SEEMS TO BE BROKEN...")
+                    print("PRINTING KWARGS")
+                    for k, v in kwargs.items():
+                        print(f'{k}: {v}')
+                    n = kwargs.get("n", 1)
+                    print(f"Using {n} for 'n' supposedly pulled from kwargs")
             # utilize current sampling params
             if n > 1 and do_sample:
                 idx = idx.repeat_interleave(n, dim=0)
