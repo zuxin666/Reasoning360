@@ -14,15 +14,19 @@ def code_exec_local(
     timeout=5,
     pytest: str = None,
     solution: str = None,
-    python_env: str = "/mbz/users/zhuojun.cheng/miniconda3/",
+    python_env: str = os.environ.get("CONDA_BIN_PATH", None),
 ):
     env = os.environ.copy()
     env["OPENBLAS_NUM_THREADS"] = "1"
     if "PYTHONPATH" in env:
         del env["PYTHONPATH"]  # avoid importing wrong stuff
 
-    python_executable = os.path.join(python_env, "bin", "python3")
+    if python_env is None:
+        python_executable = "/usr/bin/python3"
+    else:
+        python_executable = os.path.join(python_env, "python3")
 
+    # print(f"Using python environment: {python_executable}")
     if solution:
         with TemporaryDirectory() as tmpdir:
             assert stdin is None, "STDIN is not supported with solution_file"
@@ -69,6 +73,9 @@ def code_exec_local(
                 env=env,
                 check=False,
             )
+            # print(
+            #     f"STDOUT:\n{result.stdout.decode()}\n\nSTDERR:\n{result.stderr.decode()}"
+            # )
     else:
         if len(code) < CLI_ARG_SIZE_LIMIT:
             command = ["timeout", str(timeout), python_executable, "-c", code]

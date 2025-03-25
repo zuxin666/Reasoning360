@@ -71,6 +71,8 @@ def upload_model_files(api: HfApi, model_dir: str, repo_id: str) -> None:
             relative_path = os.path.relpath(file_path, model_dir)
             logging.info(f"Uploading {relative_path}...")
 
+            # continue
+
             try:
                 api.upload_file(
                     path_or_fileobj=file_path,

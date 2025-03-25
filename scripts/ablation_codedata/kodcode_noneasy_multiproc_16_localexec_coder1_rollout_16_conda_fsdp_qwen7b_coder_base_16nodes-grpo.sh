@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=rl-reasoning
 #SBATCH --partition=mbzuai
-#SBATCH --nodes=8
-#SBATCH --ntasks=8
+#SBATCH --nodes=16
+#SBATCH --ntasks=16
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=64
@@ -71,7 +71,9 @@ train_files="[${codegen_train_path}]"
 test_files="[${codegen_test_path}]"
 
 # Model config
-BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
+# BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
+# BASE_MODEL=Qwen/Qwen2.5-7B-Coder-Instruct
+BASE_MODEL=Qwen/Qwen2.5-7B-Coder
 # BASE_MODEL=Qwen/Qwen2.5-32B
 
 # Parallel config
@@ -80,7 +82,7 @@ ROLLOUT_TP_SIZE=4
 
 # Wandb config
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=zhoujun-conda-localexec-coder1-multiprocess16-async-eval-rollout-16-${BASE_MODEL##*/}-${SLURM_JOB_ID}
+WANDB_EXPERIMENT_NAME=zhoujun-kodcode_noneasy50k-localexec-mp16-rollout16-${BASE_MODEL##*/}-${SLURM_JOB_ID}
 
 export worker_num=$SLURM_NNODES
 # export worker_num=4
@@ -126,8 +128,8 @@ sleep 10
     data.val_files="$test_files" \
     data.train_batch_size=128 \
     data.val_batch_size=2048 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=3072 \
+    data.max_prompt_length=2048 \
+    data.max_response_length=4096 \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \

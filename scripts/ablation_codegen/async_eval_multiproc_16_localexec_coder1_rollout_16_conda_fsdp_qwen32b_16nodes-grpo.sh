@@ -126,8 +126,8 @@ sleep 10
     data.val_files="$test_files" \
     data.train_batch_size=128 \
     data.val_batch_size=2048 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=3072 \
+    data.max_prompt_length=2048 \
+    data.max_response_length=4096 \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
@@ -160,4 +160,5 @@ sleep 10
     trainer.nnodes=$worker_num \
     trainer.save_freq=100 \
     trainer.test_freq=3 \
-    trainer.total_epochs=5
+    trainer.total_epochs=5 \
+    trainer.val_generations_to_log_to_wandb=50
