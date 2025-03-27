@@ -1120,7 +1120,7 @@ class RayPPOTrainer(object):
                             if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
                                 new_batch, kl_metrics = apply_kl_penalty(new_batch, 
                                                                          kl_ctrl=self.kl_ctrl,
-                                                                         kl_penalty=self.config.algorith.kl_penalty)
+                                                                         kl_penalty=self.config.algorithm.kl_penalty)
                                 metrics.update(kl_metrics)  # TODO: This will be cleared if we use multiple generation batches
                             else:
                                 new_batch.batch['token_level_rewards'] = new_batch.batch['token_level_scores']

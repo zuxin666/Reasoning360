@@ -161,6 +161,12 @@ def main_task(config):
     else:
         raise NotImplementedError
     compute_score = get_custom_reward_fn(config)
+    # print("REWARD FUNCTION DETAILS")
+    # print(f"`reward_fn_cls`: {reward_manager_cls}")
+    # print(f"`compute_score`: {compute_score}")
+    # print(f"`reward_fn_key`: {config.data.reward_fn_key}")
+    # print(f"`overlong_buffer_cfg`: {config.custom_reward_function.overlong_buffer}")
+    # print(f"`reward_metric`: {config.reward_model.reward_metric}")
     reward_fn = reward_manager_cls(tokenizer=tokenizer,
                                    num_examine=0,
                                    compute_score=compute_score,
