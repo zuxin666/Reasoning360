@@ -70,8 +70,8 @@ math_test_path=${DATA_DIR}/bigmath_preview/math.parquet
 # minerva_test_path=${DATA_DIR}/deepscaler_preview/minerva.parquet
 # olympiad_bench_test_path=${DATA_DIR}/deepscaler_preview/olympiad_bench.parquet
 
-train_files="['$deepscaler_train_path']"
-test_files="['$aime_test_path', '$amc_test_path', '$math_test_path']" #, '$minerva_test_path', '$olympiad_bench_test_path']"
+train_files="['${orz_train_path}']"
+test_files="['${aime_test_path}', '${amc_test_path}', '${math_test_path}']" #, '$minerva_test_path', '$olympiad_bench_test_path']"
 
 # Model config
 # BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
