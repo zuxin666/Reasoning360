@@ -152,14 +152,16 @@ def main_task(config):
         reward_manager_cls = NaiveParallelRewardManager
     elif reward_manager_name == "prime":
         from verl.workers.reward_manager import PrimeRewardManager
-
         reward_manager_cls = PrimeRewardManager
+    elif reward_manager_name == 'dapo':
+        from verl.workers.reward_manager import DAPORewardManager
+        reward_manager_cls = DAPORewardManager
     elif reward_manager_name == "llm_judge":
         from verl.workers.reward_manager import LLMJudgeRewardManager
-
         reward_manager_cls = LLMJudgeRewardManager
     else:
         raise NotImplementedError
+
     compute_score = get_custom_reward_fn(config)
     # print("REWARD FUNCTION DETAILS")
     # print(f"`reward_fn_cls`: {reward_manager_cls}")
@@ -171,9 +173,6 @@ def main_task(config):
                                    num_examine=0,
                                    compute_score=compute_score,
                                    reward_fn_key=config.data.reward_fn_key,
-                                   max_resp_len=config.data.max_response_length,
-                                   overlong_buffer_cfg=config.custom_reward_function.overlong_buffer,
-                                   reward_metric=config.reward_model.get("reward_metric", None),
                                    )
 
     # Note that we always use function-based RM for validation
@@ -181,9 +180,6 @@ def main_task(config):
                                        num_examine=1,
                                        compute_score=compute_score,
                                        reward_fn_key=config.data.reward_fn_key,
-                                       max_resp_len=config.data.max_response_length,
-                                       overlong_buffer_cfg=config.custom_reward_function.overlong_buffer,
-                                       reward_metric=config.reward_model.get("reward_metric", None),
                                        )
 
     resource_pool_manager = ResourcePoolManager(

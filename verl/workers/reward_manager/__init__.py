@@ -15,4 +15,5 @@
 from .naive import NaiveRewardManager
 from .naive_parallel import NaiveParallelRewardManager
 from .prime import PrimeRewardManager
+from .dapo import DAPORewardManager
 from .llm_judge import LLMJudgeRewardManager

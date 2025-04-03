@@ -24,11 +24,10 @@ def _default_compute_score(
     elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
         # from . import math
         # res = math.compute_score(solution_str, ground_truth)
-
         # Use Math-Verify (https://github.com/huggingface/Math-Verify) for better evaluation accuracy
         from . import math_verify
         res = math_verify.compute_score(solution_str, ground_truth)
-    elif data_source == 'math_dapo':
+    elif data_source == 'math_dapo' or data_source.startswith("aime"):
         from . import math_dapo
         res = math_dapo.compute_score(solution_str, ground_truth)
     elif data_source in [
@@ -98,7 +97,7 @@ def _default_compute_score(
         from . import coder1
         res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
 
     if isinstance(res, dict):
         return res
