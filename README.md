@@ -9,14 +9,75 @@ Check the guide of verl to setup the environment.
 
 Remember to process data and wandb login before launching the experiments.
 
+---
 ## Data preparation
+
+### 1. Math
+Take `Deepscaler` as an example.
 Deepscaler has 40K high-quality math (Q, A) pairs from previous AIME, AMC, etc. Prepare this by running:
 ```bash
 python examples/data_preprocess/deepscaler_preview.py --local_dir data/deepscaler_preview
 ```
 
-Adding new dataset is similar.
+### 2. Code
+Take `Kodcode` as an example.
+Kodcode is a dataset of 400K code (Q, solution, utests) triplets from previous ACM ICPC, etc. Prepare this by running:
+```bash
+python examples/data_preprocess/codgen.py --dataset_names kodcode
+```
 
+---
+## Training (docker + fsdp/megatron)
+Multi-node training 7B w/ FSDP backend:
+```bash
+sbatch scripts/templates/docker-fsdp-qwen7b-4nodes-grpo.sh
+```
+
+Multi-node training 32B w/ FSDP backend:
+
+(Note: as vllm updates to >= 0.8, the docker image needs update; can turn to local conda env for now)
+```bash
+sbatch scripts/templates/docker-fsdp-qwen32b-16nodes-grpo.sh
+```
+
+Multi-node training 32B w/ Megatron backend:
+```bash
+sbatch scripts/templates/docker-megatron-dsr1_qwen_32b-16nodes-ppo.sh
+```
+
+## Usage (conda+fsdp)
+First export the conda binary path (can check with `which python` and `which ray`):
+```
+export CONDA_BIN_PATH=/path/to/conda/bin/
+```
+
+Single node, 8-H100 GPUs:
+```bash
+bash scripts/templates/conda-fsdp-qwen2.5_math_3b-1node-ppo.sh
+```
+
+Multi-node training 7B:
+```bash
+sbatch scripts/templates/conda-fsdp-qwen7b-4nodes-grpo.sh
+```
+
+Multi-node training 32B:
+```bash
+sbatch scripts/templates/conda-fsdp-qwen32b-16nodes-grpo.sh
+```
+
+The single-node script directly prints log in the terminal; the multi-node script prints log in the slurm log (`.out` and `.err`) files. Check wandb for the experiment logs.
+
+Adjust the template script to fit your needs.
+
+## Change reward metric
+Set `reward_model.reward_metric` in the config file or cli arguments. Can choose from "prime_math", "math_verify", "boxed_math_verify" for math. Default is None, i.e., use "prime_math" for math.
+
+
+### To add new dataset...
+
+
+---
 ## Data viewer
 
 1. Installation
@@ -64,51 +125,16 @@ install SGLang from github (need to be after this [PR](https://github.com/sgl-pr
 
 The script will automatically launch 64 jobs (each on one node) and monitor them. If some job fails unexpectedly, you can launch the job in `temp_job_scripts` and add the new job id to `sgl_job_ids.txt` so that it'll be monitored.
 
-## Usage (docker+fsdp/megatron)
-Multi-node training 7B w/ FSDP backend:
+
+## Contributing
+
+We use `yapf` to enforce strict code formatting. Before committing, make sure you have run the pre-commit checks.
 ```bash
-sbatch scripts/templates/docker-fsdp-qwen7b-4nodes-grpo.sh
+pre-commit install
+pre-commit run --all-files
 ```
 
-Multi-node training 32B w/ FSDP backend:
-```bash
-sbatch scripts/templates/docker-fsdp-qwen32b-16nodes-grpo.sh
-```
-
-Multi-node training 32B w/ Megatron backend:
-```bash
-sbatch scripts/templates/docker-megatron-dsr1_qwen_32b-16nodes-ppo.sh
-```
-
-## Usage (conda+fsdp)
-First export the conda binary path (can check with `which python` and `which ray`):
-```
-export CONDA_BIN_PATH=/path/to/conda/bin/
-```
-
-Single node, 8-H100 GPUs:
-```bash
-bash scripts/templates/conda-fsdp-qwen2.5_math_3b-1node-ppo.sh
-```
-
-Multi-node training 7B:
-```bash
-sbatch scripts/templates/conda-fsdp-qwen7b-4nodes-grpo.sh
-```
-
-Multi-node training 32B:
-```bash
-sbatch scripts/templates/conda-fsdp-qwen32b-16nodes-grpo.sh
-```
-
-The single-node script directly prints log in the terminal; the multi-node script prints log in the slurm log (`.out` and `.err`) files. Check wandb for the experiment logs.
-
-Adjust the template script to fit your needs.
-
-## Change reward metric
-Set `reward_model.reward_metric` in the config file or cli arguments. Can choose from "prime_math", "math_verify", "boxed_math_verify" for math. Default is None, i.e., use "prime_math" for math.
-
-
+---
 
 ## Trouble shooting
 1. Gloo socket issue:
