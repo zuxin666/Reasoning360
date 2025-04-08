@@ -173,6 +173,8 @@ def main_task(config):
                                    num_examine=0,
                                    compute_score=compute_score,
                                    reward_fn_key=config.data.reward_fn_key,
+                                   # NOTE: added by Reasoning360
+                                   reward_metric=config.reward_model.get("reward_metric", None)
                                    )
 
     # Note that we always use function-based RM for validation
@@ -180,6 +182,8 @@ def main_task(config):
                                        num_examine=1,
                                        compute_score=compute_score,
                                        reward_fn_key=config.data.reward_fn_key,
+                                       # NOTE: added by Reasoning360
+                                       reward_metric=config.reward_model.get("reward_metric", None),
                                        )
 
     resource_pool_manager = ResourcePoolManager(

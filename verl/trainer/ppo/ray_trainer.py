@@ -295,18 +295,18 @@ class RayPPOTrainer(object):
         if config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
 
-            if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
-                self.use_crtic = True
-            elif self.config.algorithm.adv_estimator in [
-                AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS,
-                AdvantageEstimator.REMAX, AdvantageEstimator.RLOO,
-            ]:
-                self.use_critic = False
-            else:
-                raise NotImplementedError
+        if self.config.algorithm.adv_estimator == AdvantageEstimator.GAE:
+            self.use_critic = True
+        elif self.config.algorithm.adv_estimator in [
+                AdvantageEstimator.GRPO, AdvantageEstimator.REINFORCE_PLUS_PLUS, AdvantageEstimator.REMAX,
+                AdvantageEstimator.RLOO
+        ]:
+            self.use_critic = False
+        else:
+            raise NotImplementedError
             
-            self._validate_config()
-            self._create_dataloader()
+        self._validate_config()
+        self._create_dataloader()
 
     def _validate_config(self):
         config = self.config
@@ -343,7 +343,7 @@ class RayPPOTrainer(object):
             # actor: ppo_micro_batch_size vs. ppo_micro_batch_size_per_gpu
             check_mutually_exclusive(
                 config.actor_rollout_ref.actor.ppo_micro_batch_size, 
-                config.actor.rollout_ref.actor.ppo_micro_batch_size_per_gpu, 
+                config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu, 
                 "actor_rollout_ref.actor"
                 )
             
@@ -357,8 +357,8 @@ class RayPPOTrainer(object):
             
             # The rollout section also have log_prob_micro_batch_size vs. log_prob_micro_batch_size_per_gpu
             check_mutually_exclusive(
-                config.actor.actor_rollout_ref.rollout.log_prob_micro_batch_size, 
-                config.actor.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu,
+                config.actor_rollout_ref.rollout.log_prob_micro_batch_size, 
+                config.actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu,
                 "actor_rollout_ref.rollout"
             )
 
@@ -386,7 +386,7 @@ class RayPPOTrainer(object):
         if not config.actor_rollout_ref.actor.use_dynamic_bsz:
             assert config.data.train_batch_size >= config.actor_rollout_ref.actor.ppo_mini_batch_size
             sp_size = config.actor_rollout_ref.actor.get('ulysses_sequence_parallel_size', 1)
-            if config.actor_rollout_ref.actor.ppo_micro_batych_size is not None:
+            if config.actor_rollout_ref.actor.ppo_micro_batch_size is not None:
                 assert config.actor_rollout_ref.actor.ppo_mini_batch_size % config.actor_rollotu_ref.actor.ppo_micro_batch_size == 0
                 assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
@@ -561,6 +561,7 @@ class RayPPOTrainer(object):
                 self.config.reward_model.enable
                 and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model"
             ):
+                print(f"EXITING VALIDATION HERE BECAUSE {self.config.reward_model.enable=} and {test_batch[0].non_tensor_batch['reward_model']['style']=}")
                 return {}
 
             # Store original inputs
@@ -622,8 +623,9 @@ class RayPPOTrainer(object):
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
+            
+            reward_extra_infos_dict["reward"].extend(scores)
             if "reward_extra_info" in result:
-                reward_extra_infos_dict["final_reward"].extend(scores)
                 for key, lst in result["reward_extra_info"].items():
                     reward_extra_infos_dict[key].extend(lst)
 
@@ -635,26 +637,27 @@ class RayPPOTrainer(object):
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-        for lst in reward_extra_infos_dict.values():
-            assert len(lst) == 0 or len(lst) == len(sample_scores)
+        for key_info, lst in reward_extra_infos_dict.items():
+            assert len(lst) == 0 or len(lst) == len(sample_scores), (f"{key_info}: {len(lst)=}, {len(sample_scores)=}")
         
         data_sources = np.concatenate(data_source_lst, axis=0)
 
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
-
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
-            core_var = "acc" if "acc" in var2metric2val else "final_reward"
+            core_var = "acc" if "acc" in var2metric2val else "reward"
             for var_name, metric2val in var2metric2val.items():
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
+                print(f"Printing all metrics of {var_name=}")
                 for metric_name, metric_val in metric2val.items():
+                    print(f"{metric_name=}: {metric_val=}")
                     if var_name == core_var and any(metric_name.startswith(pfx) for pfx in ["mean", "std", "maj", "best"]) and f"@{n_max}/" in metric_name:
                         metric_sec = "val-core"
                     else:
                         metric_sec = "val-aux"
                     pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = metric_val
-
+        print(f"EXITING VALIDATION HERE... `metric_dict`: {metric_dict} and \n`data_src2var2metric2val` {data_src2var2metric2val}...")
         return metric_dict
 
     def init_workers(self):
@@ -986,19 +989,19 @@ class RayPPOTrainer(object):
                         batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
                         # recompute old_log_probs
-                        with _timer(old_log_prob, timing_raw):
-                            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                            batch = batch.union(old_log_prob)
+                        with _timer("old_log_probs", timing_raw):
+                            old_log_probs = self.actor_rollout_wg.compute_log_prob(batch)
+                            batch = batch.union(old_log_probs)
 
                         if self.use_reference_policy:
                             # compute reference log_prob
-                            with _timer('ref', timing_raw):
+                            with _timer("ref", timing_raw):
                                 ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                                 batch = batch.union(ref_log_prob)
 
                         # compute values
                         if self.use_critic:
-                            with _timer('values', timing_raw):
+                            with _timer("values", timing_raw):
                                 values = self.critic_wg.compute_values(batch)
                                 batch = batch.union(values)
 

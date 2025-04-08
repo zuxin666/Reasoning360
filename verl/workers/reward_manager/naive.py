@@ -21,16 +21,12 @@ from collections import defaultdict
 class NaiveRewardManager:
     """The reward manager."""
 
-    def __init__(self, 
-                 tokenizer, 
-                 num_examine, 
-                 compute_score=None, 
-                 reward_fn_key='data_source',
-                 ) -> None:
+    def __init__(self, tokenizer, num_examine, compute_score=None, reward_fn_key='data_source', **kwargs) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or _default_compute_score
         self.reward_fn_key = reward_fn_key
+        self.reward_metric = kwargs.get("reward_metric", None)
 
     def __call__(self, data: DataProto, return_dict: bool = False):
         """We will expand this function gradually based on the available datasets"""
@@ -38,7 +34,7 @@ class NaiveRewardManager:
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
             if return_dict:
-                return {"reward": data.batch['rm_scores']}
+                return {"reward_tensor": data.batch['rm_scores']}
             else:
                 return data.batch['rm_scores']
 
@@ -54,15 +50,11 @@ class NaiveRewardManager:
 
             prompt_length = prompt_ids.shape[-1]
 
-            valid_prompt_length = data_item.batch["attention_mask"][
-                :prompt_length
-            ].sum()
+            valid_prompt_length = data_item.batch["attention_mask"][:prompt_length].sum()
             valid_prompt_ids = prompt_ids[-valid_prompt_length:]
 
             response_ids = data_item.batch["responses"]
-            valid_response_length = data_item.batch["attention_mask"][
-                prompt_length:
-            ].sum()
+            valid_response_length = data_item.batch["attention_mask"][prompt_length:].sum()
             valid_response_ids = response_ids[:valid_response_length]
 
             # decode
@@ -80,6 +72,7 @@ class NaiveRewardManager:
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
+                reward_metric=self.reward_metric,
             )
 
             if isinstance(score, dict):
@@ -90,7 +83,7 @@ class NaiveRewardManager:
             else:
                 reward = score
             
-            reward_tensor[i, valid_response_length -1] = reward
+            reward_tensor[i, valid_response_length-1] = reward
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
@@ -101,11 +94,11 @@ class NaiveRewardManager:
                 print("[response]", response_str)
                 print("[ground_truth]", ground_truth)
                 
-            if isinstance(score, dict):
-                for key, value in score.items():
-                    print(f"[{key}]", value)
-            else:
-                print(f"[score]", score)
+                if isinstance(score, dict):
+                    for key, value in score.items():
+                        print(f"[{key}]", value)
+                else:
+                    print(f"[score]", score)
 
         if return_dict:
             return {

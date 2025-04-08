@@ -158,7 +158,7 @@ sleep 10
     trainer.logger=['console','wandb'] \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \
-    +trainer.val_before_train=False \
+    +trainer.val_before_train=True \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=$worker_num \
     trainer.save_freq=10 \
