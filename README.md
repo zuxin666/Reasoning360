@@ -26,7 +26,7 @@ Kodcode is a dataset of 400K code (Q, solution, utests) triplets from previous A
 python examples/data_preprocess/codgen.py --dataset_names kodcode
 ```
 
-## 3. Logic
+### 3. Logic
 Take `Ordering Puzzle` as an example.
 ```bash
 python examples/data_processs/puzzle_gen.py --num_puzzles 10000 --output_dir data/puzzles_dataset --output_file puzzles_dataset.json --test True
@@ -83,6 +83,7 @@ Set `reward_model.reward_metric` in the config file or cli arguments. Can choose
 
 ### To add new dataset...
 
+Just add the dataset to the `examples/data_preprocess/` and follow the format of the existing datasets.
 
 ---
 ## Data viewer
