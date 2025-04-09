@@ -21,13 +21,18 @@ def _default_compute_score(
         from . import gsm8k
 
         res = gsm8k.compute_score(solution_str, ground_truth)
-    elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
-        # from . import math
-        # res = math.compute_score(solution_str, ground_truth)
+    elif data_source in ["lighteval/MATH", "DigitalLearningGmbH/MATH-lighteval"]:
+        from . import math
 
-        # Use Math-Verify (https://github.com/huggingface/Math-Verify) for better evaluation accuracy
-        from . import math_verify
-        res = math_verify.compute_score(solution_str, ground_truth)
+        res = math.compute_score(solution_str, ground_truth)
+
+        # [Optional] Math-Verify Integration
+        # For enhanced accuracy, consider utilizing Math-Verify (https://github.com/huggingface/Math-Verify).
+        # Note: Math-Verify needs to be manually installed via pip: `pip install math-verify`.
+        # To use it, override the `compute_score` function with the following implementation:
+
+        # from . import math_verify
+        # res = math_verify.compute_score(solution_str, ground_truth)
     elif data_source in [
         "numina_aops_forum",
         "numina_synthetic_math",
@@ -41,7 +46,9 @@ def _default_compute_score(
         res = prime_math.compute_score(solution_str, ground_truth)
     elif data_source in ["codecontests", "apps", "codeforces", "taco"]:
         from . import prime_code
+
         res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
+    # NOTE: added by Reasoning360
     elif data_source in [
         "agentica-org/DeepScaleR-Preview-Dataset",
         "nanoverl/math",
@@ -64,8 +71,11 @@ def _default_compute_score(
 
         elif reward_metric == "math_llm_judge":
             from . import math_llm_judge
-            res = math_llm_judge.compute_score(solution_str, ground_truth, extra_info=extra_info)
-            
+
+            res = math_llm_judge.compute_score(
+                solution_str, ground_truth, extra_info=extra_info
+            )
+
         elif reward_metric == "math_verify":
             from .orz.math_utils_sync import is_equal, solution2answer
 
@@ -88,12 +98,17 @@ def _default_compute_score(
                 add_boxed(solution2answer(str(ground_truth))),
                 math_mode="math_verify",
             )
-    elif data_source in ['hiyouga/geometry3k']:
+    elif data_source in ["hiyouga/geometry3k"]:
         from . import geo3k
+
         res = geo3k.compute_score(solution_str, ground_truth)
-    elif data_source in ['code']:
+    elif data_source.startswith("code"):
         from . import coder1
+
         res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)
+    elif data_source in ['ordering_puzzle_dataset']:
+        from . import puzzles_dataset
+        res = puzzles_dataset.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError
 

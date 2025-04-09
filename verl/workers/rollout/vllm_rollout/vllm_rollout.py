@@ -26,6 +26,7 @@ When working with Megatron:
 """
 from typing import List
 from contextlib import contextmanager
+import numpy as np
 from omegaconf import DictConfig
 import torch
 import torch.distributed
@@ -217,6 +218,7 @@ class vLLMRollout(BaseRollout):
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
 
+        # NOTE: added by Reasoning360
         if "num_samples" in prompts.meta_info:
             kwargs["n"] = prompts.meta_info["num_samples"]
 
@@ -240,13 +242,12 @@ class vLLMRollout(BaseRollout):
                 )
                 # log_probs = pad_sequence_to_length(log_probs, self.config.response_length, self.pad_token_id)
 
-            n = kwargs["n"]
             # utilize current sampling params
-            if n > 1 and do_sample:
-                idx = idx.repeat_interleave(n, dim=0)
-                attention_mask = attention_mask.repeat_interleave(n, dim=0)
-                position_ids = position_ids.repeat_interleave(n, dim=0)
-                batch_size = batch_size * n
+            if self.sampling_params.n > 1 and do_sample:
+                idx = idx.repeat_interleave(self.sampling_params.n, dim=0)
+                attention_mask = attention_mask.repeat_interleave(self.sampling_params.n, dim=0)
+                position_ids = position_ids.repeat_interleave(self.sampling_params.n, dim=0)
+                batch_size = batch_size * self.sampling_params.n
             seq = torch.cat([idx, response], dim=-1)
 
         response_length = response.size(1)
@@ -291,4 +292,19 @@ class vLLMRollout(BaseRollout):
         if self.config.free_cache_engine:
             self.inference_engine.free_cache_engine()
 
-        return DataProto(batch=batch)
+        # NOTE: added by Reasoning360
+        metrics = self.report_memory_usage(reset=True)
+        # NOTE: we do not use meta_info because dp collect fn only picks
+        # meta_info of the first data.
+        non_tensor_batch = {
+            'metrics_' + k: np.asarray([v] * seq.size(0), dtype=object) for k, v in metrics.items() 
+        } or None
+
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+
+    def report_memory_usage(self, reset: bool=False):
+        # NOTE: added by Reasoning360
+        method = getattr(self.inference_engine.llm_engine, 'report_page_usage_history', None)
+        if method is not None:
+            return method(reset=reset)
+        return {}
