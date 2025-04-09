@@ -62,7 +62,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
     ]:
         if reward_metric is None:
             from . import naive_dapo
-            res = naive_dapo.compute_score(solution_str, ground_truth)
+            res = naive_dapo.compute_score(solution_str, ground_truth, extra_info=extra_info)
         
         elif reward_metric == "prime_math": # or reward_metric is None:
             from . import prime_math

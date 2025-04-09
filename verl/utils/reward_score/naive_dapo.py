@@ -21,8 +21,8 @@ import sympy
 from pylatexenc import latex2text
 from sympy.parsing import sympy_parser
 import os
-from prime_math import math_normalize
-from prime_math.grader import math_equal
+from .prime_math import math_normalize
+from .prime_math.grader import math_equal
 
 
 class timeout:
@@ -394,7 +394,7 @@ def grade_answer(given_answer: str, ground_truth: str) -> tuple[bool, str]:
 
     # be at least as lenient as mathd
     if ground_truth_normalized_mathd == given_answer_normalized_mathd:
-        return True
+        return True, given_answer_normalized_mathd
 
     ground_truth_normalized = _normalize(ground_truth)
     given_normalized = _normalize(given_answer)

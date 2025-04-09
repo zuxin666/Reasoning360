@@ -225,6 +225,7 @@ offload=False
     trainer.save_freq=10 \
     trainer.test_freq=5 \
     trainer.total_epochs=5 \
+    +trainer.val_generations_to_log_to_wandb=10 \
     trainer.resume_mode=disable
 
     # data.val_batch_size=1024 \
