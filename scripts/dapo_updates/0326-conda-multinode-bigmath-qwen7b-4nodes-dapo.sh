@@ -108,34 +108,36 @@ sleep 10
 
 # Hyperparameters from `verl.recipes.dapo.test_dapo_7b.sh`
 ###############################
-adv_esitmator=grpo
+adv_estimator=grpo
 
+use_kl_in_reward=False
 kl_coef=0.0
+use_kl_loss=False
 kl_loss_coef=0.0
 
 clip_ratio_low=0.2
 clip_ratio_high=0.28
 
+max_prompt_length=$((1024 * 2))
+max_response_length=$((1024 * 2))
 enable_overlong_buffer=True
 overlong_buffer_len=512
 overlong_penalty_factor=1.0
 
+loss_agg_mode="token-mean"
+
 enable_filter_groups=True
-filter_groups_metric=seq_reward
+filter_groups_metric=acc
 max_num_gen_batches=10
 train_prompt_bsz=512
 gen_prompt_bsz=$((train_prompt_bsz * 3))
 train_prompt_mini_bsz=32
 n_resp_per_prompt=16
 
-use_token_level_loss=True
-
 # Algorithm
-## Train
-max_prompt_length=$((1024 * 2))
-max_response_length=$((1024 * 2))
-## Validation
-val_top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
+temperature=1.0
+top_p=1.0
+top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 
 # Mathematically equivalent
 use_dynamic_bsz=True
@@ -147,8 +149,9 @@ offload=False
 # ray start --address $address_head --num-cpus 96  --num-gpus 8
 
 # Start training
-"${CONDA_BIN_PATH}python" -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=${adv_esitmator} \
+"${CONDA_BIN_PATH}python" -m verl.recipe.dapo.src.main_dapo \
+    algorithm.adv_estimator=${adv_estimator} \
+    algorithm.use_kl_in_reward=${use_kl_in_reward} \
     algorithm.kl_ctrl.kl_coef=${kl_coef} \
     algorithm.filter_groups.enable=${enable_filter_groups} \
     algorithm.filter_groups.metric=${filter_groups_metric} \
@@ -161,11 +164,11 @@ offload=False
     data.max_response_length=${max_response_length} \
     data.train_batch_size=${train_prompt_bsz} \
     data.gen_batch_size=${gen_prompt_bsz} \
-    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.use_kl_loss=${use_kl_loss} \
     actor_rollout_ref.actor.kl_loss_coef=${kl_loss_coef} \
-    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_low} \
+    actor_rollout_ref.actor.clip_ratio_c=10.0 \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$((max_prompt_length + max_response_length)) \
     actor_rollout_ref.actor.strategy="fsdp" \
@@ -178,10 +181,13 @@ offload=False
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=${offload} \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.grad_clip=1.0 \
-    actor_rollout_ref.actor.use_token_level_loss=${use_token_level_loss} \
-    actor_rollout_ref.actor.use_token_level_loss=True \
+    actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
+    actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=$((max_prompt_length + max_response_length)) \
+    actor_rollout_ref.ref.log_prob_micro_batch_size=${infer_micro_batch_size} \
+    actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
+    actor_rollout_ref.ref.ulysses_sequence_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
@@ -191,9 +197,12 @@ offload=False
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length)) \
-    actor_rollout_ref.rollout.val_kwargs.top_k="${val_top_k}" \
-    actor_rollout_ref.rollout.val_kwargs.top_p=1.0\
-    actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
+    actor_rollout_ref.rollout.temperature=${temperature} \
+    actor_rollout_ref.rollout.top_p=${top_p} \
+    actor_rollout_ref.rollout.top_k=${top_k} \
+    actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
+    actor_rollout_ref.rollout.val_kwargs.top_p=${top_p}\
+    actor_rollout_ref.rollout.val_kwargs.temperature=${temperature} \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.model.path=$BASE_MODEL \
@@ -202,20 +211,21 @@ offload=False
     +actor_rollout_ref.model.override_config.embd_pdrop=0. \
     +actor_rollout_ref.model.override_config.resid_pdrop=0. \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
-    custom_reward_function.overlong_buffer.enable=${enable_overlong_buffer} \
-    custom_reward_function.overlong_buffer.len=${overlong_buffer_len} \
-    custom_reward_function.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
+    reward_model.reward_manager=dapo \
+    reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
+    reward_model.overlong_buffer.len=${overlong_buffer_len} \
+    reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
     trainer.logger=['console','wandb'] \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \
-    +trainer.val_before_train=True \
+    trainer.val_before_train=True \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes="${NNODES}" \
     trainer.nnodes=$worker_num \
     trainer.save_freq=10 \
     trainer.test_freq=5 \
     trainer.total_epochs=5 \
-    trainer.val_generations_to_log_to_wandb=10
+    trainer.resume_mode=disable
 
     # data.val_batch_size=1024 \
     # data.max_prompt_length=1024 \

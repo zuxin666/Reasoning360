@@ -195,10 +195,15 @@ def is_correct_minerva(solution_str: str,
     Returns:
         Tuple of (is_correct, normalized_prediction)
     """
+    print(f"[DAPO compute_score: gt]: {gt}, type: {type(gt)}")
+    print(f"[DAPO compute_score: solution_str]: {solution_str}")
     # Extract answer from solution
     match = re.findall(answer_pattern, solution_str)
+    print(f"[DAPO compute_score: match]: {match}")
     extracted_answer = match[-1] if match else "[INVALID]"
     pred = normalize_final_answer(extracted_answer)
+    print(f"[DAPO compute_score: extracted_answer]: {extracted_answer}")
+    print(f"[DAPO compute_score: pred]: {pred}")
 
     # Process ground truth
     if gt_need_extract:

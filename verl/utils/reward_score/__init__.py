@@ -24,7 +24,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
         # Use Math-Verify (https://github.com/huggingface/Math-Verify) for better evaluation accuracy
         from . import math_verify # from . import math
         res = math_verify.compute_score(solution_str, ground_truth) # res = math.compute_score(solution_str, ground_truth)
-    elif data_source == 'math_dapo' or data_source.startswith("aime"):
+    elif data_source == 'math_dapo' or data_source.startswith("aime"): # TWK NOTE: commented out original filtering to DAPO function.
         from . import math_dapo
         res = math_dapo.compute_score(solution_str, ground_truth)
     elif data_source in [
@@ -44,6 +44,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
     elif data_source in ['hiyouga/geometry3k']:
         from . import geo3k
         res = geo3k.compute_score(solution_str, ground_truth)
+    # TWK NOTE: Commenting out to route all training and validation reward function computation through math_dapo...
     elif data_source in [
         "agentica-org/DeepScaleR-Preview-Dataset",
         "nanoverl/math",
@@ -59,7 +60,11 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
         "SDSB/aime_repeated_8x",
         "SDSB/amc_repeated_4x",
     ]:
-        if reward_metric == "prime_math" or reward_metric is None:
+        if reward_metric is None:
+            from . import naive_dapo
+            res = naive_dapo.compute_score(solution_str, ground_truth)
+        
+        elif reward_metric == "prime_math": # or reward_metric is None:
             from . import prime_math
 
             res = prime_math.compute_score(solution_str, ground_truth)[0]
@@ -90,6 +95,9 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
                 add_boxed(solution2answer(str(ground_truth))),
                 math_mode="math_verify",
             )
+        # elif reward_metric == "dapo":
+        #     from . import naive_dapo
+        #     res = naive_dapo.compute_score(solution_str, ground_truth)
     elif data_source in ['code']:
         from . import coder1
         res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)

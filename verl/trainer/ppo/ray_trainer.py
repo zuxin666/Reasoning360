@@ -245,7 +245,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 def _timer(name: str, timing_raw: Dict[str, float]):
     with Timer(name=name, logger=None) as timer:
         yield
-    timing_raw[name] += timer.last  # Allow to accumulate time
+    timing_raw[name] = timer.last  # Allow to accumulate time
 
 
 class RayPPOTrainer(object):
@@ -648,16 +648,13 @@ class RayPPOTrainer(object):
             core_var = "acc" if "acc" in var2metric2val else "reward"
             for var_name, metric2val in var2metric2val.items():
                 n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
-                print(f"Printing all metrics of {var_name=}")
                 for metric_name, metric_val in metric2val.items():
-                    print(f"{metric_name=}: {metric_val=}")
                     if var_name == core_var and any(metric_name.startswith(pfx) for pfx in ["mean", "std", "maj", "best"]) and f"@{n_max}/" in metric_name:
                         metric_sec = "val-core"
                     else:
                         metric_sec = "val-aux"
                     pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = metric_val
-        print(f"EXITING VALIDATION HERE... `metric_dict`: {metric_dict} and \n`data_src2var2metric2val` {data_src2var2metric2val}...")
         return metric_dict
 
     def init_workers(self):
@@ -989,9 +986,9 @@ class RayPPOTrainer(object):
                         batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
                         # recompute old_log_probs
-                        with _timer("old_log_probs", timing_raw):
-                            old_log_probs = self.actor_rollout_wg.compute_log_prob(batch)
-                            batch = batch.union(old_log_probs)
+                        with _timer("old_log_prob", timing_raw):
+                            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                            batch = batch.union(old_log_prob)
 
                         if self.use_reference_policy:
                             # compute reference log_prob
