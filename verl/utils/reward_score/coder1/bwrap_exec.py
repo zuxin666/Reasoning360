@@ -14,12 +14,17 @@ def code_exec_bwrap(
     timeout=5,
     pytest: str = None,
     solution: str = None,
-    python_env: str = "/usr",
+    python_env: str = os.environ.get("CONDA_BIN_PATH", None),
 ):
     env = os.environ.copy()
     env["OPENBLAS_NUM_THREADS"] = "1"
     if "PYTHONPATH" in env:
         del env["PYTHONPATH"]  # avoid importing wrong stuff
+
+    if python_env is None:
+        python_executable = "/usr/bin/python3"
+    else:
+        python_executable = os.path.join(python_env, "python3")
 
     command = [
         "timeout",
@@ -28,8 +33,8 @@ def code_exec_bwrap(
         "--unshare-all",
         # "--ro-bind", "/usr/bin/python3", "/usr/bin/python3",
         "--ro-bind",
-        python_env,
-        "/sandbox",
+        python_executable,
+        "/sandbox/bin/python3",
         "--ro-bind",
         "/usr/lib",
         "/usr/lib",

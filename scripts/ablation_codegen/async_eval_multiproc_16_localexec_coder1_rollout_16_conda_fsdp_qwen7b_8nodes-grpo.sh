@@ -160,4 +160,5 @@ sleep 10
     trainer.nnodes=$worker_num \
     trainer.save_freq=100 \
     trainer.test_freq=3 \
-    trainer.total_epochs=5
+    trainer.total_epochs=5 \
+    trainer.val_generations_to_log_to_wandb=50

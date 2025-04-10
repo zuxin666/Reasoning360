@@ -50,6 +50,7 @@ from verl.trainer.ppo.metric_utils import (
      bootstrap_metric,
      calc_maj_val,
      process_validation_metrics,
+     compute_difficulty_histogram_metrics
      )
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
@@ -255,17 +256,15 @@ class RayPPOTrainer(object):
 
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
-    def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-    ):
+    def __init__(self,
+                 config,
+                 tokenizer,
+                 role_worker_mapping: dict[Role, WorkerType],
+                 resource_pool_manager: ResourcePoolManager,
+                 ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+                 processor=None,
+                 reward_fn=None,
+                 val_reward_fn=None):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
 
@@ -398,7 +397,7 @@ class RayPPOTrainer(object):
         # critic
         if self.use_critic and not config.critic.use_dynamic_bsz:
             assert config.data.train_batch_size >= config.critic.ppo_mini_batch_size
-            sp_size = config.critic.get("ulysses_sequence_parallel_size", 1)
+            sp_size = config.critic.get('ulysses_sequence_parallel_size', 1)
             if config.critic.ppo_micro_batch_size is not None:
                 assert (config.critic.ppo_mini_batch_size % config.critic.ppo_micro_batch_size== 0)
                 assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
@@ -419,6 +418,16 @@ class RayPPOTrainer(object):
                 assert (
                     config.critic.model.use_remove_padding
                 ), "When using sequence parallelism for critic, you must enable `use_remove_padding`."
+
+        if config.data.get('val_batch_size', None) is not None:
+            print(
+                f"WARNING: val_batch_size is deprecated. Validation datasets are sent to inference engines as a whole batch, which will schedule the memory themselves."
+            )
+
+        # check eval config
+        if config.actor_rollout_ref.rollout.val_kwargs.do_sample:
+            assert config.actor_rollout_ref.rollout.temperature > 0, \
+                "validation gen temperature should be greater than 0 when enabling do_sample"
 
         if config.data.get('val_batch_size', None) is not None:
             print(
@@ -489,16 +498,14 @@ class RayPPOTrainer(object):
             num_workers=8,
             shuffle=False,
             drop_last=False,
-            collate_fn=collate_fn,
-        )
+            collate_fn=collate_fn)
 
         assert len(self.train_dataloader) >= 1
         assert len(
             self.val_dataloader
         ) == 1, "Validation dataloader must have a single batch, which inference engines will schedule the memory themselves."
 
-        print(f"Size of train dataloader: {len(self.train_dataloader)}")
-        print(f"Size of val dataloader: {len(self.val_dataloader)}")
+        print(f'Size of train dataloader: {len(self.train_dataloader)}')
 
         # inject total_training_steps to actor/critic optim_config. This is hacky.
         total_training_steps = (
@@ -554,7 +561,7 @@ class RayPPOTrainer(object):
 
             # repeat test batch
             test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n,
-                                           interleave=True)
+                                        interleave=True)
 
             # we only do validation on rule-based rm
             if (
@@ -573,38 +580,33 @@ class RayPPOTrainer(object):
             ]
             sample_inputs.extend(input_texts)
 
-            if "multi_modal_inputs" in test_batch.non_tensor_batch.keys():
+            if 'multi_modal_inputs' in test_batch.non_tensor_batch.keys():
                 test_gen_batch = test_batch.pop(
-                    batch_keys=["input_ids", "attention_mask", "position_ids"],
-                    non_tensor_batch_keys=["raw_prompt_ids", "multi_modal_data", "multi_modal_inputs"],
+                    batch_keys=['input_ids', 'attention_mask', 'position_ids'],
+                    non_tensor_batch_keys=['raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
                 )
             else:
                 test_gen_batch = test_batch.pop(
-                    batch_keys=["input_ids", "attention_mask", "position_ids"],
-                    non_tensor_batch_keys=["raw_prompt_ids"],
+                    batch_keys=['input_ids', 'attention_mask', 'position_ids'],
+                    non_tensor_batch_keys=['raw_prompt_ids'],
                 )
 
             test_gen_batch.meta_info = {
-                "eos_token_id": self.tokenizer.eos_token_id,
-                "pad_token_id": self.tokenizer.pad_token_id,
-                "recompute_log_prob": False,
-                "do_sample": self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
-                "validate": True,
+                'eos_token_id': self.tokenizer.eos_token_id,
+                'pad_token_id': self.tokenizer.pad_token_id,
+                'recompute_log_prob': False,
+                'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
+                'validate': True,
             }
             print(f'test_gen_batch meta info: {test_gen_batch.meta_info}')
 
             # pad to be divisible by dp_size
-            test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(
-                test_gen_batch, self.actor_rollout_wg.world_size
-            )
-            test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(
-                test_gen_batch_padded
-            )
+            test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
+            test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
 
-            test_output_gen_batch = unpad_dataproto(
-                test_output_gen_batch_padded, pad_size=pad_size
-            )
-            print("validation generation end")
+            # unpad
+            test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
+            print('validation generation end')
 
             # Store generated outputs
             output_ids = test_output_gen_batch.batch["responses"]
@@ -745,47 +747,41 @@ class RayPPOTrainer(object):
 
     def _save_checkpoint(self):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
-        local_global_step_folder = os.path.join(
-            self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
-        )
-        actor_local_path = os.path.join(local_global_step_folder, "actor")
+        local_global_step_folder = os.path.join(self.config.trainer.default_local_dir,
+                                                f'global_step_{self.global_steps}')
 
-        actor_remote_path = (
-            None
-            if self.config.trainer.default_hdfs_dir is None
-            else os.path.join(
-                self.config.trainer.default_hdfs_dir,
-                f"global_step_{self.global_steps}",
-                "actor",
+        print(f'local_global_step_folder: {local_global_step_folder}')
+        actor_local_path = os.path.join(local_global_step_folder, 'actor')
+
+        actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
+            self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'actor')
+
+        remove_previous_ckpt_in_save = self.config.trainer.get('remove_previous_ckpt_in_save', False)
+        if remove_previous_ckpt_in_save:
+            print(
+                'Warning: remove_previous_ckpt_in_save is deprecated, set max_actor_ckpt_to_keep=1 and max_critic_ckpt_to_keep=1 instead'
             )
-        )
-        self.actor_rollout_wg.save_checkpoint(
-            actor_local_path,
-            actor_remote_path,
-            self.global_steps,
-            remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save,
-        )
+        max_actor_ckpt_to_keep = self.config.trainer.get('max_actor_ckpt_to_keep',
+                                                         None) if not remove_previous_ckpt_in_save else 1
+        max_critic_ckpt_to_keep = self.config.trainer.get('max_critic_ckpt_to_keep',
+                                                          None) if not remove_previous_ckpt_in_save else 1
+
+        self.actor_rollout_wg.save_checkpoint(actor_local_path,
+                                              actor_remote_path,
+                                              self.global_steps,
+                                              max_ckpt_to_keep=max_actor_ckpt_to_keep)
 
         if self.use_critic:
-            critic_local_path = os.path.join(local_global_step_folder, "critic")
-            critic_remote_path = (
-                None
-                if self.config.trainer.default_hdfs_dir is None
-                else os.path.join(
-                    self.config.trainer.default_hdfs_dir,
-                    f"global_step_{self.global_steps}",
-                    "critic",
-                )
-            )
-            self.critic_wg.save_checkpoint(
-                critic_local_path,
-                critic_remote_path,
-                self.global_steps,
-                remove_previous_ckpt=self.config.trainer.remove_previous_ckpt_in_save,
-            )
+            critic_local_path = os.path.join(local_global_step_folder, 'critic')
+            critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
+                self.config.trainer.default_hdfs_dir, f'global_step_{self.global_steps}', 'critic')
+            self.critic_wg.save_checkpoint(critic_local_path,
+                                           critic_remote_path,
+                                           self.global_steps,
+                                           max_ckpt_to_keep=max_critic_ckpt_to_keep)
 
         # save dataloader
-        dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
+        dataloader_local_path = os.path.join(local_global_step_folder, 'data.pt')
         dataloader_state_dict = self.train_dataloader.state_dict()
         torch.save(dataloader_state_dict, dataloader_local_path)
 
@@ -802,7 +798,7 @@ class RayPPOTrainer(object):
 
         # load from hdfs
         if self.config.trainer.default_hdfs_dir is not None:
-            raise NotImplementedError("load from hdfs is not implemented yet")
+            raise NotImplementedError('load from hdfs is not implemented yet')
         else:
             checkpoint_folder = (
                 self.config.trainer.default_local_dir
@@ -856,9 +852,9 @@ class RayPPOTrainer(object):
 
         # load dataloader,
         # TODO: from remote not implemented yet
-        dataloader_local_path = os.path.join(global_step_folder, "data.pt")
+        dataloader_local_path = os.path.join(global_step_folder, 'data.pt')
         if os.path.exists(dataloader_local_path):
-            dataloader_state_dict = torch.load(dataloader_local_path)
+            dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
             self.train_dataloader.load_state_dict(dataloader_state_dict)
         else:
             print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
@@ -950,6 +946,14 @@ class RayPPOTrainer(object):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(
                             gen_batch
                         )
+                        # NOTE: added by Reasoning360
+                        vllm_page_metrics = gen_batch_output.non_tensor_batch
+                        vllm_page_metrics = {
+                            k.removeprefix("metrics_") : v for k, v in vllm_page_metrics.items()
+                            if k.startswith("metrics_")
+                        }
+                        vllm_page_metrics = reduce_metrics(vllm_page_metrics)
+                        metrics.update(vllm_page_metrics)
 
                         if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                             with _timer("gen_max", timing_raw):
@@ -1078,12 +1082,9 @@ class RayPPOTrainer(object):
                             self._save_checkpoint()
 
                 # collect metrics
-                metrics.update(
-                    compute_data_metrics(batch=batch, use_critic=self.use_critic)
-                )
-                metrics.update(
-                    compute_timing_metrics(batch=batch, timing_raw=timing_raw)
-                )
+                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                metrics.update(compute_difficulty_histogram_metrics(batch=batch, config=self.config))
+                metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))

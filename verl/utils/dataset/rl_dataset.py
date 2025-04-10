@@ -134,6 +134,7 @@ class RLHFDataset(Dataset):
         print(self.dataframe.head())
 
         # Safely check if apply_chat_template exists in dataframe
+        # NOTE: added by Reasoning360
         if "apply_chat_template" not in self.dataframe:
             print("Warning: apply_chat_template column not found in dataframe. Defaulting to True.")
             self.dataframe["apply_chat_template"] = [True] * len(self.dataframe)
@@ -146,7 +147,7 @@ class RLHFDataset(Dataset):
                 self.dataframe.apply(
                     lambda doc: len(
                         tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)
-                        if doc["apply_chat_template"] else tokenizer.encode(doc["processed_input"])
+                        if doc["apply_chat_template"] else tokenizer.encode(doc["raw_prompt"])
                     ) <= self.max_prompt_length,
                     axis=1
                 )
@@ -175,7 +176,7 @@ class RLHFDataset(Dataset):
         chat = row_dict.pop(self.prompt_key)
 
         prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False) \
-            if row_dict["apply_chat_template"] else row_dict["processed_input"]
+            if row_dict["apply_chat_template"] else row_dict["raw_prompt"]
 
         is_multi_modal = self.image_key in row_dict
         if is_multi_modal:  # expand image token

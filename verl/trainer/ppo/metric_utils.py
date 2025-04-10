@@ -21,6 +21,7 @@ import numpy as np
 from verl import DataProto
 from collections import Counter, defaultdict
 from functools import partial
+import wandb
 
 
 def reduce_metrics(metrics: Dict[str, List[Any]]) -> Dict[str, Any]:
@@ -279,3 +280,22 @@ def process_validation_metrics(data_sources: list[str], sample_inputs: list[str]
     
     return data_src2var2metric2val
 
+def compute_difficulty_histogram_metrics(batch: DataProto, config) -> Dict[str, Any]:
+    with torch.no_grad():    
+        num_rollout = config.actor_rollout_ref.rollout.n
+        sequence_score = batch.batch['token_level_scores'].sum(-1)
+        uids = batch.non_tensor_batch['uid']
+        sorted_indices = sorted(range(len(uids)), key=lambda i: uids[i])
+        sorted_indices_tensor = torch.tensor(sorted_indices, device=sequence_score.device)
+        sequence_score = sequence_score[sorted_indices_tensor]
+
+        batch_score = sequence_score.reshape([-1, num_rollout]) # batch_size, num_rollout
+
+        avg_batch_score_per_batch = torch.mean(batch_score, dim=-1) # batch_size
+        avg_batch_score_per_batch_np = avg_batch_score_per_batch.detach().cpu().numpy().reshape([-1])
+
+    metrics ={
+        'acc_inter_val_per_batch/histogram': wandb.Histogram(sequence=avg_batch_score_per_batch_np, num_bins=10),
+    }
+
+    return metrics

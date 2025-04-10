@@ -30,7 +30,7 @@ async def single_compute_score(evaluation_func, completion, reference, task, tas
             asyncio.wait_for(
                 loop.run_in_executor(
                     executor,
-                    partial(evaluation_func, task, completion, reference, task_extra_info),  # Ensure synchronous
+                    partial(evaluation_func, task, completion, reference, task_extra_info)  # Ensure synchronous
                 ),
                 timeout=timeout,
             )

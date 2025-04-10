@@ -19,11 +19,12 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
         from . import gsm8k
         res = gsm8k.compute_score(solution_str, ground_truth)
     elif data_source in ['lighteval/MATH', 'DigitalLearningGmbH/MATH-lighteval']:
-        # from . import math
-        # res = math.compute_score(solution_str, ground_truth)
+        from . import math
+        res = math.compute_score(solution_str, ground_truth)
         # Use Math-Verify (https://github.com/huggingface/Math-Verify) for better evaluation accuracy
-        from . import math_verify # from . import math
-        res = math_verify.compute_score(solution_str, ground_truth) # res = math.compute_score(solution_str, ground_truth)
+
+        # from . import math_verify # from . import math
+        # res = math_verify.compute_score(solution_str, ground_truth) # res = math.compute_score(solution_str, ground_truth)
     elif data_source == 'math_dapo' or data_source.startswith("aime"): # TWK NOTE: commented out original filtering to DAPO function.
         from . import math_dapo
         res = math_dapo.compute_score(solution_str, ground_truth)
@@ -40,11 +41,12 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
         res = prime_math.compute_score(solution_str, ground_truth)
     elif data_source in ["codecontests", "apps", "codeforces", "taco"]:
         from . import prime_code
+
         res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
     elif data_source in ['hiyouga/geometry3k']:
         from . import geo3k
         res = geo3k.compute_score(solution_str, ground_truth)
-    # TWK NOTE: Commenting out to route all training and validation reward function computation through math_dapo...
+    # NOTE: added by Reasoning360
     elif data_source in [
         "agentica-org/DeepScaleR-Preview-Dataset",
         "nanoverl/math",
@@ -67,8 +69,11 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
 
         elif reward_metric == "math_llm_judge":
             from . import math_llm_judge
-            res = math_llm_judge.compute_score(solution_str, ground_truth, extra_info=extra_info)
-            
+
+            res = math_llm_judge.compute_score(
+                solution_str, ground_truth, extra_info=extra_info
+            )
+
         elif reward_metric == "math_verify":
             from .orz.math_utils_sync import is_equal, solution2answer
 
@@ -94,9 +99,13 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
         elif reward_metric == "dapo":
             from . import naive_dapo
             res = naive_dapo.compute_score(solution_str, ground_truth, extra_info=extra_info)
-    elif data_source in ['code']:
+    elif data_source.startswith('code'):
         from . import coder1
+
         res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)
+    elif data_source in ['ordering_puzzle_dataset']:
+        from . import puzzles_dataset
+        res = puzzles_dataset.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
 
