@@ -28,13 +28,15 @@ class DAPORewardManager:
                  compute_score=None,
                  reward_fn_key='data_source',
                  max_resp_len=None,
-                 overlong_buffer_cfg=None) -> None:
+                 overlong_buffer_cfg=None,
+                 **kwargs) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or _default_compute_score
         self.reward_fn_key = reward_fn_key
         self.overlong_buffer_cfg = overlong_buffer_cfg
         self.max_resp_len = max_resp_len
+        self.reward_metric = kwargs.get("reward_metric", None)
 
         if self.overlong_buffer_cfg is not None:
             assert self.max_resp_len is not None, f"max_resp_len must be provided if {overlong_buffer_cfg=}, but got None"
@@ -86,6 +88,7 @@ class DAPORewardManager:
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
+                reward_metric=self.reward_metric
             )
 
             score: float

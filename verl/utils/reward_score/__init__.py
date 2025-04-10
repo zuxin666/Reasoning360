@@ -59,12 +59,8 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
         "SDSB/big_math_partial_mar21_filtered_basic",
         "SDSB/aime_repeated_8x",
         "SDSB/amc_repeated_4x",
-    ]:
-        if reward_metric is None:
-            from . import naive_dapo
-            res = naive_dapo.compute_score(solution_str, ground_truth, extra_info=extra_info)
-        
-        elif reward_metric == "prime_math": # or reward_metric is None:
+    ]:  
+        if reward_metric == "prime_math" or reward_metric is None:
             from . import prime_math
 
             res = prime_math.compute_score(solution_str, ground_truth)[0]
@@ -95,9 +91,9 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
                 add_boxed(solution2answer(str(ground_truth))),
                 math_mode="math_verify",
             )
-        # elif reward_metric == "dapo":
-        #     from . import naive_dapo
-        #     res = naive_dapo.compute_score(solution_str, ground_truth)
+        elif reward_metric == "dapo":
+            from . import naive_dapo
+            res = naive_dapo.compute_score(solution_str, ground_truth, extra_info=extra_info)
     elif data_source in ['code']:
         from . import coder1
         res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)

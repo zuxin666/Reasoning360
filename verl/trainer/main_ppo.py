@@ -173,6 +173,8 @@ def main_task(config):
                                    num_examine=0,
                                    compute_score=compute_score,
                                    reward_fn_key=config.data.reward_fn_key,
+                                   max_resp_len=config.data.max_response_length,
+                                   overlong_buffer_cfg=config.reward_model.overlong_buffer,
                                    # NOTE: added by Reasoning360
                                    reward_metric=config.reward_model.get("reward_metric", None)
                                    )
@@ -182,6 +184,8 @@ def main_task(config):
                                        num_examine=1,
                                        compute_score=compute_score,
                                        reward_fn_key=config.data.reward_fn_key,
+                                       max_resp_len=config.data.max_response_length,
+                                       overlong_buffer_cfg=config.reward_model.overlong_buffer,
                                        # NOTE: added by Reasoning360
                                        reward_metric=config.reward_model.get("reward_metric", None),
                                        )

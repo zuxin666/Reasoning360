@@ -72,7 +72,7 @@ BASE_MODEL=Qwen/Qwen2.5-Math-7B
 # BASE_MODEL=Qwen/Qwen2.5-32B
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=taylor-7B-bigmath-dapo-${BASE_MODEL##*/}-${SLURM_JOB_ID}
+WANDB_EXPERIMENT_NAME=taylor-7B-bigmath-dapo_rewardMetricTest-${BASE_MODEL##*/}-${SLURM_JOB_ID}
 
 export worker_num=$SLURM_NNODES
 # export worker_num=4
@@ -212,6 +212,7 @@ offload=False
     +actor_rollout_ref.model.override_config.resid_pdrop=0. \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     reward_model.reward_manager=dapo \
+    reward_model.reward_metric=dapo \
     reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
     reward_model.overlong_buffer.len=${overlong_buffer_len} \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \

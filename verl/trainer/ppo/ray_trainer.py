@@ -1026,7 +1026,7 @@ class RayPPOTrainer(object):
 
                             print(f'{list(reward_extra_infos_dict.keys())=}')
                             if reward_extra_infos_dict:
-                                batch.non_tensor_batch_update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                                batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
                             # compute rewards. apply_kl_penalty if available
                             if self.config.algorithm.use_kl_in_reward:
