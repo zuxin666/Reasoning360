@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from transformers import AutoTokenizer
 from datasets import load_dataset, concatenate_datasets
 from rich.rule import Rule
+
 import rich
 import matplotlib.pyplot as plt
 import datasets
@@ -21,15 +22,15 @@ from verl.utils.reward_score.coder1 import (
     _ERROR_MSG_PREFIX,
 )
 
-from examples.data_preprocess.code_utils import *
+from examples.data_preprocess.code.code_utils import *
 
 WORKDING_DIR = os.path.join(os.environ.get("HOME"), "Reasoning360")
 
 
 def kodcode():  # Thanks!!! to Zhangchen and Yueqin
     # library requirements?
-    rich.print(Rule("Loading KodCode/KodCode-V1-SFT-R1..."))
-    dataset = load_dataset("KodCode/KodCode-V1-SFT-R1")
+    rich.print(Rule("Loading KodCode/KodCode-Light-RL-10K..."))
+    dataset = load_dataset("KodCode/KodCode-Light-RL-10K")
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-32B-Instruct")
 
     def make_map_fn(split):
@@ -111,7 +112,7 @@ def kodcode():  # Thanks!!! to Zhangchen and Yueqin
                 # The above code is using the `rich` library in Python to print a formatted message in the console.
                 # The message is in red color and includes the value of `example['conversation_id']`.
                 # rich.print(
-                #     f"[bold red]Test code failed for {example['conversation_id']}"
+                #     f"[bold red]Test code failed for {example['question_id']}"
                 # )
                 print("===========Unittest failed===========")
                 print(f"reference_solution:")
@@ -145,7 +146,7 @@ def kodcode():  # Thanks!!! to Zhangchen and Yueqin
                     "index": idx,
                     "reference": reference_solution,
                     "prompt": prompt,
-                    "dataset": "KodCode/KodCode-V1-SFT-R1",
+                    "dataset": "KodCode/KodCode-Light-RL-10K",
                     "question_subset": example["subset"],
                     "question_id": example["question_id"],
                     "gpt_difficulty": example["gpt_difficulty"],
@@ -155,8 +156,7 @@ def kodcode():  # Thanks!!! to Zhangchen and Yueqin
 
         return process_fn
 
-    # shuffle the dataset, and pick 5k examples for debugging
-    dataset = dataset["train"].shuffle(seed=666).select(range(1000))
+    dataset = dataset["train"].shuffle(seed=666)
 
     # Preprocess the dataset
     print("Executing tests to ensure correctness...")
@@ -203,6 +203,8 @@ def kodcode():  # Thanks!!! to Zhangchen and Yueqin
         xlabel="Blocked Library",
         ylabel="Count",
     )
+    
+    print(f"Before filtering, KodCode dataset size: {len(dataset)}")
 
     dataset = dataset.filter(lambda x: x["data_source"] is not None)
     print(f"Remaining samples from KodCode: {len(dataset)}")
@@ -224,6 +226,7 @@ def kodcode():  # Thanks!!! to Zhangchen and Yueqin
 def taco():
     rich.print(Rule("Loading likaixin/TACO-verified..."))
     dataset = load_dataset("likaixin/TACO-verified")["train"]
+    
 
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
@@ -366,6 +369,7 @@ for i, o in zip(_inputs, _outputs):
         with_indices=True,
         num_proc=64,
         remove_columns=dataset.column_names,
+        load_from_cache_file=False,
     ).filter(lambda x: x != EMPTY_RETURN)
     splits = dataset.train_test_split(
         test_size=max(1, min(N_TESTSET_PER_DATASET, len(dataset) * 0.1)), seed=666
@@ -448,84 +452,244 @@ for i, o in zip(_inputs, _outputs):
         function=make_map_fn("train"),
         with_indices=True,
         remove_columns=dataset.column_names,
+        load_from_cache_file=False,
     ).filter(lambda x: x != EMPTY_RETURN)
-    test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
+    test_dataset = test_dataset.map(
+        function=make_map_fn("test"), 
+        with_indices=True,
+        load_from_cache_file=False,
+    )
     return train_dataset, test_dataset
 
 
 def leetcode2k():
     rich.print(Rule("Loading LeetCodeDataset..."))
-    test_dataset = load_dataset(
-        "newfacade/LeetCodeDataset",
-        data_files="LeetCodeDataset-v2-test-problems.jsonl",
-    )["train"]
+    train_dataset = load_dataset("newfacade/LeetCodeDataset")["train"]
+    test_dataset = load_dataset("newfacade/LeetCodeDataset")["test"]
+    print("Train set:", train_dataset)
     print("Test set:", test_dataset)
 
-    train_dataset = concatenate_datasets(
-        [
-            load_dataset(
-                "newfacade/LeetCodeDataset",
-                data_files="LeetCodeDataset-v1-train-problems.jsonl",
-            )["train"],
-            load_dataset(
-                "newfacade/LeetCodeDataset",
-                data_files="LeetCodeDataset-v2-train-problems.jsonl",
-            )["train"],
-        ]
-    ).filter(
-        lambda example: example["meta"]["question_id"]
-        not in set([d["question_id"] for d in test_dataset["meta"]])
-    )
-    print("Before deduplication - Training set:", train_dataset)
-
-    first_time_idx = []
-    seen_question_ids = set()
-    for i, example in enumerate(train_dataset):
-        if example["meta"]["question_id"] not in seen_question_ids:
-            first_time_idx.append(i)
-            seen_question_ids.add(example["meta"]["question_id"])
-    train_dataset = train_dataset.select(first_time_idx)
-
-    print("After deduplication - Training set:", train_dataset)
 
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
 
         def process_fn(example, idx):
-            prompt = f"Please solve the programming task below using a self-contained code snippet in a markdown code block.\n\n{example['meta']['query'].strip()}"
+            prefix = example["prompt"]
+            
+            prompt = example["query"]
+            # remove the "### Answer: (use the provided format with backticks)" part
+            prompt = prompt.replace("### Answer: (use the provided format with backticks)", "").strip()
+            # adjust the "### Format: " part to be more readable
+            prompt = prompt.replace("### Format: ", "### Format:\n")
+
+            # Build test code (as before)
+            test_code = f"{example['test']}\n\ncheck({example['entry_point'].strip()})"
+            # Extract the candidate solution (the original completion)
+            solution = example["completion"]
+        
+            # Combine all code pieces into a single file to execute.
+            full_code = f"{prefix}\n{solution}\n{test_code}"
+            
+            # Validate that the candidate solution passes the tests
+            # 20s timeout as some leetcode tests are slow
+            succ, err = code_exec(full_code, timeout=20)
+            
+            if not succ:
+                print("===========Test code failed for LeetCodeDataset===========")
+                print("Question:", example["meta"]["question_title"])
+                print("Error:", err)
+                # Skip the example if the test code fails
+                return EMPTY_RETURN
+
             return {
                 "data_source": "code",
                 "prompt": [
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    },
+                    {"role": "user", "content": prompt},
                 ],
                 "ability": "coding",
                 "reward_model": {
                     "style": "rule",
-                    "ground_truth": json.dumps(
-                        {
-                            "functional": f"{example['test']}\n\ncheck({example['entry_point'].strip()})"
-                        }
-                    ),
+                    "ground_truth": json.dumps({
+                        "functional": test_code
+                    }),
                 },
                 "extra_info": {
                     "split": split,
                     "index": idx,
-                    "reference": example["completion"],  # C++?
+                    "reference": solution,
                     "prompt": prompt,
+                    "prefix": prefix,
                     "dataset": "LeetCodeDataset",
                 },
             }
 
         return process_fn
 
-    train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True)
-    test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
+    # filter out empty examples ("reward_model" is None)
+    train_dataset = train_dataset.map(
+        function=make_map_fn("train"), 
+        with_indices=True,
+        load_from_cache_file=False,
+    ).filter(lambda x: x["reward_model"] is not None)
+    test_dataset = test_dataset.map(
+        function=make_map_fn("test"), 
+        with_indices=True,
+        load_from_cache_file=False,
+    ).filter(lambda x: x["reward_model"] is not None)
     print(f"Leetcode2k train set: {train_dataset}")
     print(f"Leetcode2k test set: {test_dataset}")
+    return train_dataset, test_dataset
+
+
+def humaneval():
+    rich.print(Rule("Loading OpenAI HumanEval..."))
+    dataset = load_dataset("openai_humaneval")["test"]
+    print("HumanEval dataset:", dataset)
+    
+    def process_fn(example, idx):
+        # HumanEval's prompt already contains the function signature and docstring
+        prompt = (
+            "Write a complete, self-contained Python solution to the following problem. "
+            "Your solution must include all necessary imports and the full function definition including "
+            "the signature exactly as specified. Do not modify the function signature or docstring.\n\n"
+            f"```python\n{example['prompt'].strip()}\n```"
+        )
+        
+        # Extract test code
+        test_code = example['test']
+        entry_point = example['entry_point']
+        
+        # Validate that the canonical solution passes the tests
+        solution = example['canonical_solution']
+        
+        # Combine the prompt code + solution + test code to verify it works
+        full_code = f"{example['prompt']}\n{solution}\n{test_code}\n\ncheck({entry_point})"
+        
+        succ, err = code_exec(full_code)
+        if not succ:
+            print(f"Error in canonical solution for task {example['task_id']}: {err}")
+            return EMPTY_RETURN
+        
+        return {
+            "data_source": "code",
+            "prompt": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "ability": "coding",
+            "reward_model": {
+                "style": "rule",
+                "ground_truth": json.dumps(
+                    {"functional": f"{test_code}\n\ncheck({entry_point})"}
+                ),
+            },
+            "extra_info": {
+                "split": "test",
+                "index": idx,
+                "reference": solution,
+                "prompt": prompt,
+                "dataset": "openai_humaneval",
+                "task_id": str(example["task_id"]),
+            },
+        }
+    
+    test_dataset = dataset.map(
+        function=process_fn, 
+        with_indices=True,
+        load_from_cache_file=False,
+    ).filter(lambda x: x["reward_model"] is not None)
+    
+    # Return empty train dataset and test dataset
+    empty_train = datasets.Dataset.from_dict({
+        "data_source": [],
+        "prompt": [],
+        "ability": [],
+        "reward_model": [],
+        "extra_info": []
+    }) if len(test_dataset) > 0 else datasets.Dataset.from_dict({})
+    
+    print(f"HumanEval test set: {test_dataset}")
+    return empty_train, test_dataset
+
+def mbpp():
+    rich.print(Rule("Loading MBPP dataset..."))
+    dataset = load_dataset("google-research-datasets/mbpp")
+    
+    def make_map_fn(split):
+        def process_fn(example, idx):
+            # rewrite the task_id as it is int
+            example["task_id"] = "MBPP/" + str(example["task_id"])
+            
+            # Create prompt
+            prompt = (
+                f"{example['text']}\n\n"
+                f"Your solution should be a complete, self-contained function in a markdown code block. "
+                f"Make sure your solution passes the following test cases:\n"
+            )
+            
+            # Construct test code
+            test_code = ""
+            if example.get('test_setup_code'):
+                test_code += example['test_setup_code'] + "\n\n"
+            
+            # Add all test assertions
+            for assertion in example['test_list'] + example.get('challenge_test_list', []):
+                test_code += assertion + "\n"
+            
+            # Add test cases to prompt
+            prompt += f"```python\n{test_code}```"
+            prompt += "\n\nPlease do not include the test cases in your solution."
+            
+            # Validate that the canonical solution passes the tests
+            solution = example['code']
+            full_code = f"{solution}\n\n{test_code}"
+            
+            succ, err = code_exec(full_code)
+            if not succ:
+                print(f"Error in canonical solution for task {example['task_id']}: {err}")
+                return EMPTY_RETURN
+            
+            return {
+                "data_source": "code",
+                "prompt": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "ability": "coding",
+                "reward_model": {
+                    "style": "rule",
+                    "ground_truth": json.dumps(
+                        {"functional": test_code}
+                    ),
+                },
+                "extra_info": {
+                    "split": split,
+                    "index": idx,
+                    "reference": solution,
+                    "prompt": prompt,
+                    "dataset": "mbpp",
+                    "task_id": str(example["task_id"]),
+                },
+            }
+        
+        return process_fn
+    
+    # Process train and test splits
+    train_dataset = dataset["train"].map(
+        function=make_map_fn("train"), 
+        with_indices=True,
+        load_from_cache_file=False,
+    ).filter(lambda x: x['reward_model'] is not None)
+    
+    test_dataset = dataset["test"].map(
+        function=make_map_fn("test"), 
+        with_indices=True,
+        load_from_cache_file=False,
+    ).filter(lambda x: x['reward_model'] is not None)
+    
+    print(f"MBPP train set: {train_dataset}")
+    print(f"MBPP test set: {test_dataset}")
     return train_dataset, test_dataset
 
 
@@ -550,11 +714,14 @@ if __name__ == "__main__":
         "kodcode": kodcode,
         "taco": taco,
         "leetcode2k": leetcode2k,
+        "humaneval": humaneval,
+        "mbpp": mbpp,
     }
     dataset_makes = [dataset_map[name] for name in dataset_names]
     names = "-".join([make.__name__ for make in dataset_makes])
 
-    for train, test in [make() for make in dataset_makes]:
+    for make in dataset_makes:
+        train, test = make()
         train_datasets.append(train)
         test_datasets.append(test)
 

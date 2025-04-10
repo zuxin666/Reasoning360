@@ -104,6 +104,8 @@ def _compute_score(
 
     # log code
     if "functional" in ground_truth:
+        if "predfx" in extra_info and extra_info["prefix"] != None:
+            solution_code = extra_info["prefix"] + "\n" + solution_code
         reward_log.append(solution_code + "\n" + ground_truth["functional"])
     else:
         reward_log.append(solution_code)
@@ -114,6 +116,8 @@ def _compute_score(
         or "solution_file" in ground_truth
     ):
         if "functional" in ground_truth:
+            if "predfx" in extra_info and extra_info["prefix"] != None:
+                solution_code = extra_info["prefix"] + "\n" + solution_code
             succ, output = code_exec(solution_code + "\n" + ground_truth["functional"])
         elif "solution_file" in ground_truth:
             succ, output = code_exec(
