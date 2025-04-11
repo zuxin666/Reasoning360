@@ -158,7 +158,6 @@ class TaskRunner:
             reward_manager_cls = NaiveParallelRewardManager
         elif reward_manager_name == "llm_judge":
             from verl.workers.reward_manager import LLMJudgeRewardManager
-
             reward_manager_cls = LLMJudgeRewardManager
         else:
             raise NotImplementedError

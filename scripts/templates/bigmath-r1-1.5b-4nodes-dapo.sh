@@ -58,21 +58,19 @@ WORKING_DIR=${HOME}/Reasoning360
 
 DATA_DIR=${WORKING_DIR}/data
 # math_train_path=${DATA_DIR}/math/train.parquet
-orz_train_path=${DATA_DIR}/bigmath_preview/train.parquet
+orz_train_path=${DATA_DIR}/bigmath_preview_filtered_mar21_r1_instruction_style/train.parquet
 # math_test_path=${DATA_DIR}/math/test.parquet
-aime_test_path=${DATA_DIR}/bigmath_preview/aime_repeated_8x.parquet
-amc_test_path=${DATA_DIR}/bigmath_preview/amc_repeated_4x.parquet
-math_test_path=${DATA_DIR}/bigmath_preview/math.parquet
+aime_test_path=${DATA_DIR}/bigmath_preview_filtered_mar21_r1_instruction_style/aime_repeated_8x.parquet
+amc_test_path=${DATA_DIR}/bigmath_preview_filtered_mar21_r1_instruction_style/amc_repeated_4x.parquet
+math_test_path=${DATA_DIR}/bigmath_preview_filtered_mar21_r1_instruction_style/math.parquet
 
 train_files="['$orz_train_path']"
 test_files="['${aime_test_path}','${amc_test_path}','${math_test_path}']"
 
-# BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
-BASE_MODEL=Qwen/Qwen2.5-Math-7B
-# BASE_MODEL=Qwen/Qwen2.5-32B
+BASE_MODEL=/mbz/users/shibo.hao/huggingface_models/DeepSeek-R1-Distill-Qwen-1.5B
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=taylor-7B-bigmath-dapo_rewardMetricTest-${BASE_MODEL##*/}-${SLURM_JOB_ID}
+WANDB_EXPERIMENT_NAME=bigmath-r1-1.5B-dapo_reward-${SLURM_JOB_ID}
 
 export worker_num=$SLURM_NNODES
 # export worker_num=4
@@ -106,8 +104,6 @@ for ((i = 1; i < worker_num; i++)); do
 done
 sleep 10
 
-# Hyperparameters from `verl.recipes.dapo.test_dapo_7b.sh`
-###############################
 adv_estimator=grpo
 
 use_kl_in_reward=False
@@ -119,7 +115,7 @@ clip_ratio_low=0.2
 clip_ratio_high=0.28
 
 max_prompt_length=$((1024 * 2))
-max_response_length=$((1024 * 2))
+max_response_length=$((1024 * 8))
 enable_overlong_buffer=True
 overlong_buffer_len=512
 overlong_penalty_factor=1.0
@@ -192,7 +188,7 @@ offload=False
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$((max_prompt_length + max_response_length)) \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.85 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size=${infer_micro_batch_size} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \

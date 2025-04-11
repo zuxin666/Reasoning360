@@ -12,10 +12,9 @@ Remember to process data and wandb login before launching the experiments.
 ---
 ## How to add the dataset
 
-### Preprocessing
+### Data preprocessing script
 
-In preprocessing, we usually load a raw dataset from huggingface, process it into a list of dictionaries, and then save it into a parquet file.
-
+In preprocessing, we will process the data into a list of dictionaries, and then save it into a parquet file.
 
 1. Prompt preprocessing
 
@@ -23,7 +22,9 @@ In preprocessing, we usually load a raw dataset from huggingface, process it int
 
     Depending on the specific LLM to be used, there are two kind of prompts
 
-    - Chat style
+    - Chat style (for instruct-tuned model)
+
+        Example: [[1]](examples/data_preprocess/math/bigmath_preview_filtered_mar21_r1_instruction_style.py)
 
         This is used to train a model that has been trained on long-CoT, including `LLM360/Reason-SFT-32B-v0.1`, `deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B`.
 
@@ -38,13 +39,15 @@ In preprocessing, we usually load a raw dataset from huggingface, process it int
         When we use verl to train the model, it will turn into a prompt string with `apply_chat_template`.
 
         Note that:
-        - You will need to add some task-specific instruction in the `question`. E.g., for math, we concatenate the raw problem with `Let's think step by step and output the final answer within \\boxed{}.`, so that it's easy to extract the answer from model output.
+        - You will probably need to add some task-specific instruction in the `question`. E.g., for math, we concatenate the raw problem with `Let's think step by step and output the final answer within \\boxed{}.`, so that it's easy to extract the answer from model output.
         - These models are not trained with system prompt, so there is no need to add system prompt.
         - The `apply_chat_template` method of these two models will automatically append `<think>` to the end of the prompt
 
 
-    - R1-zero style
+    - R1-zero style (for base model)
 
+        Example: [[1]](examples/data_preprocess/math/bigmath_preview_filtered_mar21_r1_zero_style.py)
+    
         This is used for training from a base model (without instruction-tuned), e.g., `Qwen/Qwen2.5-32B`.
 
         In this case, since the model is not trained to use `<think>`, and it'll not automatically add `<think>` in `apply_chat_template`, we will need to do this processing here ourselves.
@@ -64,27 +67,54 @@ In preprocessing, we usually load a raw dataset from huggingface, process it int
 
     2. Reward function
 
-    We need to specify the 
+    We need to specify the information regarding reward calculation for the new dataset.
 
-### 1. Math
-Take `Deepscaler` as an example.
-Deepscaler has 40K high-quality math (Q, A) pairs from previous AIME, AMC, etc. Prepare this by running:
-```bash
-python examples/data_preprocess/math/deepscaler_preview.py --local_dir data/deepscaler_preview
-```
+    This typically includes three keys in the dict: `data_source`, `reward_model["ground_truth"]`, `extra_info`.
+    
+    In our training, we use [`_default_compute_score`](verl/utils/reward_score/__init__.py#L17), which routes the reward computing to a specific reward function implementation based on `data_source`. `ground_truth` and `extra_info` will be passed as arguments.
 
-### 2. Code
-Take `Kodcode` as an example.
-Kodcode is a dataset of 400K code (Q, solution, utests) triplets from previous ACM ICPC, etc. Prepare this by running:
-```bash
-python examples/data_preprocess/code/codegen.py --dataset_names kodcode
-```
+### Reward function
 
-### 3. Logic
-Take `Ordering Puzzle` as an example.
-```bash
-python examples/data_processs/logic/puzzle_gen.py --num_puzzles 10000 --output_dir data/puzzles_dataset --output_file puzzles_dataset.json --test True
-```
+    Please look at [`_default_compute_score`](verl/utils/reward_score/__init__.py#L17). You can write your own reward function for the task, and import it here.
+
+### Training script
+
+    Verify the inclusion of a new dataset by actually training models with it.
+
+    Please refer to these two templates: [base model](scripts/templates/bigmath-qwen7b-math-4nodes-dapo.sh), [instruct model](scripts/templates/bigmath-r1-1.5b-4nodes-dapo.sh).
+
+    Notes:
+
+    - It's recommended to download the model from huggingface before training. Please use `huggingface-cli download <repo_id> --local-dir <your_local_directory> `, and change `BASE_MODEL` to the local path in the script.
+
+### Pull Request
+
+    Finally, please make a pull request including the data preprocessing script, revised `_default_compute_score`, and the training script.
+
+
+
+## Using existing datasets
+
+
+1. Math
+    Take `Deepscaler` as an example.
+    Deepscaler has 40K high-quality math (Q, A) pairs from previous AIME, AMC, etc. Prepare this by running:
+    ```bash
+    python examples/data_preprocess/math/deepscaler_preview.py --local_dir data/deepscaler_preview
+    ```
+
+2. Code
+    Take `Kodcode` as an example.
+    Kodcode is a dataset of 400K code (Q, solution, utests) triplets from previous ACM ICPC, etc. Prepare this by running:
+    ```bash
+    python examples/data_preprocess/code/codegen.py --dataset_names kodcode
+    ```
+
+3. Logic
+    Take `Ordering Puzzle` as an example.
+    ```bash
+    python examples/data_processs/logic/puzzle_gen.py --num_puzzles 10000 --output_dir data/puzzles_dataset --output_file puzzles_dataset.json --test True
+    ```
 
 
 ---
@@ -130,14 +160,6 @@ sbatch scripts/templates/conda-fsdp-qwen32b-16nodes-grpo.sh
 The single-node script directly prints log in the terminal; the multi-node script prints log in the slurm log (`.out` and `.err`) files. Check wandb for the experiment logs.
 
 Adjust the template script to fit your needs.
-
-## Change reward metric
-Set `reward_model.reward_metric` in the config file or cli arguments. Can choose from "prime_math", "math_verify", "boxed_math_verify" for math. Default is None, i.e., use "prime_math" for math.
-
-
-### To add new dataset...
-
-Just add the dataset to the `examples/data_preprocess/` and follow the format of the existing datasets.
 
 ---
 ## Data viewer

@@ -27,7 +27,7 @@ import torch
 from verl import DataProto
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, _timer, apply_kl_penalty, compute_advantage, AdvantageEstimator
 from verl.trainer.ppo.metric_utils import (compute_data_metrics, compute_throughout_metrics, compute_timing_metrics,
-                                           reduce_metrics)
+                                           reduce_metrics, compute_difficulty_histogram_metrics)
 
 
 class RayDAPOTrainer(RayPPOTrainer):
@@ -279,6 +279,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                metrics.update(compute_difficulty_histogram_metrics(batch=batch, config=self.config))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
