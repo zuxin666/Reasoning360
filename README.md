@@ -65,31 +65,31 @@ In preprocessing, we will process the data into a list of dictionaries, and then
         ```
         With these two keys, verl will not apply chat template to the `prompt`, but will directly use `raw_prompt`.
 
-    2. Reward function
+2. Reward function
 
     We need to specify the information regarding reward calculation for the new dataset.
 
     This typically includes three keys in the dict: `data_source`, `reward_model["ground_truth"]`, `extra_info`.
-    
+
     In our training, we use [`_default_compute_score`](verl/utils/reward_score/__init__.py#L17), which routes the reward computing to a specific reward function implementation based on `data_source`. `ground_truth` and `extra_info` will be passed as arguments.
 
 ### Reward function
 
-    Please look at [`_default_compute_score`](verl/utils/reward_score/__init__.py#L17). You can write your own reward function for the task, and import it here.
+Please look at [`_default_compute_score`](verl/utils/reward_score/__init__.py#L17). You can write your own reward function for the task, and import it here.
 
 ### Training script
 
-    Verify the inclusion of a new dataset by actually training models with it.
+Verify the inclusion of a new dataset by actually training models with it.
 
-    Please refer to these two templates: [base model](scripts/templates/bigmath-qwen7b-math-4nodes-dapo.sh), [instruct model](scripts/templates/bigmath-r1-1.5b-4nodes-dapo.sh).
+Please refer to these two templates: [base model](scripts/templates/bigmath-qwen7b-math-4nodes-dapo.sh), [instruct model](scripts/templates/bigmath-r1-1.5b-4nodes-dapo.sh).
 
-    Notes:
+Notes:
 
-    - It's recommended to download the model from huggingface before training. Please use `huggingface-cli download <repo_id> --local-dir <your_local_directory> `, and change `BASE_MODEL` to the local path in the script.
+- It's recommended to download the model from huggingface before training. Please use `huggingface-cli download <repo_id> --local-dir <your_local_directory> `, and change `BASE_MODEL` to the local path in the script.
 
 ### Pull Request
 
-    Finally, please make a pull request including the data preprocessing script, revised `_default_compute_score`, and the training script.
+Finally, please make a pull request including the data preprocessing script, revised `_default_compute_score`, and the training script.
 
 
 
