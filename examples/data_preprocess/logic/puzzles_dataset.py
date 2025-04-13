@@ -47,8 +47,8 @@ def extract_from_ground_truth(text):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json_path', default='data/puzzles_dataset/puzzles_dataset.json', help='Path to json file')
-    parser.add_argument('--local_dir', default='data/puzzles_dataset', help='Local directory to save parquet files')
+    parser.add_argument('--json_path', default='../data/puzzles_dataset/puzzles_dataset.json', help='Path to json file')
+    parser.add_argument('--local_dir', default='../data/puzzles_dataset', help='Local directory to save parquet files')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--test_size', type=float, default=0.1, help='Proportion of data for test set')
     parser.add_argument('--data_source', default='ordering_puzzle_dataset', help='Name of data source')
