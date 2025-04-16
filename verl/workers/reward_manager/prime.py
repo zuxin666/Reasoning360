@@ -143,6 +143,7 @@ class PrimeRewardManager:
         data_sources = data.non_tensor_batch['data_source']
 
         scores = self.verify(data)
+        # (bsz,)
 
         for i in range(len(data)):
             data_source = data_sources[i]
@@ -158,4 +159,4 @@ class PrimeRewardManager:
         if return_dict:
             return {"reward_tensor": reward_tensor}
         else:
-            return reward_tensor
+            return reward_tensor  # (bsz, resp_len)
