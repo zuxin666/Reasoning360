@@ -133,12 +133,12 @@ def kodcode():  # Thanks!!! to Zhangchen and Yueqin
                 prompt += f"\n\nNote that the output function should be {str(example['test_info']).strip()}."
 
             return {
-                "data_source": "code-kodcode",
+                "data_source": "codegen-kodcode",
                 "prompt": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                "ability": "coding",
+                "ability": "codegen",
                 "reward_model": {
                     "style": "rule",
                     "ground_truth": json.dumps({"pytest": test_code}),
@@ -343,12 +343,12 @@ for i, o in zip(_inputs, _outputs):
 
             prompt = "\n".join(prompt_pieces)
             return {
-                "data_source": "code",
+                "data_source": "codegen-taco",
                 "prompt": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                "ability": "coding",
+                "ability": "codegen",
                 "reward_model": {
                     "style": "rule",
                     "ground_truth": oracle,
@@ -437,12 +437,12 @@ def leetcode2k():
                 return EMPTY_RETURN
 
             return {
-                "data_source": "code",
+                "data_source": "codegen-leetcode2k",
                 "prompt": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                "ability": "coding",
+                "ability": "codegen",
                 "reward_model": {
                     "style": "rule",
                     "ground_truth": json.dumps({
@@ -507,12 +507,12 @@ def humaneval():
             return EMPTY_RETURN
         
         return {
-            "data_source": "code",
+            "data_source": "codegen-humaneval",
             "prompt": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            "ability": "coding",
+            "ability": "codegen",
             "reward_model": {
                 "style": "rule",
                 "ground_truth": json.dumps(
@@ -586,12 +586,12 @@ def mbpp():
                 return EMPTY_RETURN
             
             return {
-                "data_source": "code",
+                "data_source": "codegen-mbpp",
                 "prompt": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                "ability": "coding",
+                "ability": "codegen",
                 "reward_model": {
                     "style": "rule",
                     "ground_truth": json.dumps(
@@ -722,12 +722,12 @@ check_{fn_name}()
                 raise ValueError(f"Unknown test type: {tests[0]['type']}")
             
             return {
-                "data_source": "code",
+                "data_source": "codegen-primeintellect",
                 "prompt": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                "ability": "coding",
+                "ability": "codegen",
                 "reward_model": {
                     "style": "rule",
                     "ground_truth": oracle,
@@ -851,12 +851,12 @@ check_{function_name}()
                 raise ValueError(f"Unknown test type: {tests[0]['testtype']}")
             
             return {
-                "data_source": "code",
+                "data_source": "codegen-livecodebench",
                 "prompt": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                "ability": "coding",
+                "ability": "codegen",
                 "reward_model": {
                     "style": "rule",
                     "ground_truth": oracle,
@@ -890,157 +890,6 @@ check_{function_name}()
 
     print(f"LiveCodeBench train set: {train_dataset}")
     print(f"LiveCodeBench test set: {test_dataset}")
-    return train_dataset, test_dataset
-
-
-def humaneval():
-    rich.print(Rule("Loading OpenAI HumanEval..."))
-    dataset = load_dataset("openai_humaneval")["test"]
-    print("HumanEval dataset:", dataset)
-    
-    def process_fn(example, idx):
-        # HumanEval's prompt already contains the function signature and docstring
-        prompt = (
-            "Write a complete, self-contained Python solution to the following problem. "
-            "Your solution must include all necessary imports and the full function definition including "
-            "the signature exactly as specified. Do not modify the function signature or docstring.\n\n"
-            f"```python\n{example['prompt'].strip()}\n```"
-        )
-        
-        # Extract test code
-        test_code = example['test']
-        entry_point = example['entry_point']
-        
-        # Validate that the canonical solution passes the tests
-        solution = example['canonical_solution']
-        
-        # Combine the prompt code + solution + test code to verify it works
-        full_code = f"{example['prompt']}\n{solution}\n{test_code}\n\ncheck({entry_point})"
-        
-        succ, err = code_exec(full_code)
-        if not succ:
-            print(f"Error in canonical solution for task {example['task_id']}: {err}")
-            return EMPTY_RETURN
-        
-        return {
-            "data_source": "code",
-            "prompt": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            "ability": "coding",
-            "reward_model": {
-                "style": "rule",
-                "ground_truth": json.dumps(
-                    {"functional": f"{test_code}\n\ncheck({entry_point})"}
-                ),
-            },
-            "extra_info": {
-                "split": "test",
-                "index": idx,
-                "reference": solution,
-                "prompt": prompt,
-                "dataset": "openai_humaneval",
-                "task_id": str(example["task_id"]),
-            },
-        }
-    
-    test_dataset = dataset.map(
-        function=process_fn, 
-        with_indices=True,
-        load_from_cache_file=False,
-    ).filter(lambda x: x["reward_model"] is not None)
-    
-    # Return empty train dataset and test dataset
-    empty_train = datasets.Dataset.from_dict({
-        "data_source": [],
-        "prompt": [],
-        "ability": [],
-        "reward_model": [],
-        "extra_info": []
-    }) if len(test_dataset) > 0 else datasets.Dataset.from_dict({})
-    
-    print(f"HumanEval test set: {test_dataset}")
-    return empty_train, test_dataset
-
-def mbpp():
-    rich.print(Rule("Loading MBPP dataset..."))
-    dataset = load_dataset("google-research-datasets/mbpp")
-    
-    def make_map_fn(split):
-        def process_fn(example, idx):
-            # rewrite the task_id as it is int
-            example["task_id"] = "MBPP/" + str(example["task_id"])
-            
-            # Create prompt
-            prompt = (
-                f"{example['text']}\n\n"
-                f"Your solution should be a complete, self-contained function in a markdown code block. "
-                f"Make sure your solution passes the following test cases:\n"
-            )
-            
-            # Construct test code
-            test_code = ""
-            if example.get('test_setup_code'):
-                test_code += example['test_setup_code'] + "\n\n"
-            
-            # Add all test assertions
-            for assertion in example['test_list'] + example.get('challenge_test_list', []):
-                test_code += assertion + "\n"
-            
-            # Add test cases to prompt
-            prompt += f"```python\n{test_code}```"
-            prompt += "\n\nPlease do not include the test cases in your solution."
-            
-            # Validate that the canonical solution passes the tests
-            solution = example['code']
-            full_code = f"{solution}\n\n{test_code}"
-            
-            succ, err = code_exec(full_code)
-            if not succ:
-                print(f"Error in canonical solution for task {example['task_id']}: {err}")
-                return EMPTY_RETURN
-            
-            return {
-                "data_source": "code",
-                "prompt": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                "ability": "coding",
-                "reward_model": {
-                    "style": "rule",
-                    "ground_truth": json.dumps(
-                        {"functional": test_code}
-                    ),
-                },
-                "extra_info": {
-                    "split": split,
-                    "index": idx,
-                    "reference": solution,
-                    "prompt": prompt,
-                    "dataset": "mbpp",
-                    "task_id": str(example["task_id"]),
-                },
-            }
-        
-        return process_fn
-    
-    # Process train and test splits
-    train_dataset = dataset["train"].map(
-        function=make_map_fn("train"), 
-        with_indices=True,
-        load_from_cache_file=False,
-    ).filter(lambda x: x['reward_model'] is not None)
-    
-    test_dataset = dataset["test"].map(
-        function=make_map_fn("test"), 
-        with_indices=True,
-        load_from_cache_file=False,
-    ).filter(lambda x: x['reward_model'] is not None)
-    
-    print(f"MBPP train set: {train_dataset}")
-    print(f"MBPP test set: {test_dataset}")
     return train_dataset, test_dataset
 
 
