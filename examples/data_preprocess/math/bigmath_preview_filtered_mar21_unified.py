@@ -145,9 +145,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--prompt-style",
         type=str,
-        choices=["zero_shot", "instruction"],
-        default="zero_shot",
-        help="Prompt style to use: 'zero_shot' for think-then-answer format or 'instruction' for direct instruction format.",
+        choices=["zero_style", "instruction"],
+        default="zero_style",
+        help="Prompt style to use: 'zero_style' for think-then-answer format or 'instruction' for direct instruction format.",
     )
 
     args = parser.parse_args()
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     ]
 
     # Define prompts based on style - now using constants
-    if args.prompt_style == "zero_shot":
+    if args.prompt_style == "zero_style":
         prompt = ZERO_STYLE_PROMPT_TEMPLATE
     else:  # instruction style
         prompt = None  # Not used in instruction style
@@ -240,7 +240,7 @@ if __name__ == "__main__":
             question = example.pop("problem")
             answer = example.pop("answer")
 
-            if args.prompt_style == "zero_shot":
+            if args.prompt_style == "zero_style":
                 # Zero-shot style with think-then-answer format
                 data = {
                     "data_source": data_source,
