@@ -51,7 +51,10 @@ dependencies = [
     "math-verify[antlr4_9_3]==0.6.0",
     "nvitop",
     "torch",
+    "datasets",
+    "wandb",
     "flash-attn",
+    "tensordict==0.7.2"
 ]
 
 # Optional dependencies (extras_require in setup.py)
