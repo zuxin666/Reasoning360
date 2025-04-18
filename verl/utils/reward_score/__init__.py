@@ -115,6 +115,9 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
     elif data_source in ['ordering_puzzle_dataset']:
         from . import puzzles_dataset
         res = puzzles_dataset.compute_score(solution_str, ground_truth)
+    elif data_source in ['graph_logical_dataset']:
+        from . import graph_dataset
+        res = graph_dataset.compute_score(solution_str, ground_truth)
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
 

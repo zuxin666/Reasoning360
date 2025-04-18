@@ -25,30 +25,16 @@ from transformers import (
     LlamaTokenizer,
     AutoTokenizer,
 )
-
-PROMPT_DICT = {
-    "prompt_input": (
-        "Below is an instruction that describes a task, paired with an input that provides further context. "
-        "Write a response that appropriately completes the request.\n\n"
-        "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:"
-    ),
-    "prompt_no_input": (
-        "Below is an instruction that describes a task. "
-        "Write a response that appropriately completes the request.\n\n"
-        "### Instruction:\n{instruction}\n\n### Response:"
-    ),
-}
     
-def make_prefix(dp, tokenizer):
+def make_prefix(dp, model_type = 'instruct'):
     constraints = dp['input']
     result = dp['ground_truth']
     instruction = dp['instruction']
-    
-    prefix = [{"role": "system", "content": "You are a helpful assistant. You first think about the reasoning process in the mind and then provides the user with the answer."},
-                    {"role": "user", "content": f"{instruction}. The constraints are: {constraints}. Think step by step to find the answer. Show your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> ['pigeon', 'sparrow', 'quail'] </answer>."},
-                    {"role": "assistant", "content": "Let me solve this step by step."}]
-    chat_text = tokenizer.apply_chat_template(prefix, tokenize=False)
-    return chat_text
+    if model_type == 'instruct':
+        prefix = f"{instruction}. The constraints are: {constraints}. Think step by step to find the answer. Show your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> ['pigeon', 'sparrow', 'quail'] </answer>."
+    else:
+        prefix = f"{instruction}. The constraints are: {constraints}."
+    return prefix
 
 
 def extract_from_ground_truth(text):
@@ -61,44 +47,65 @@ def extract_from_ground_truth(text):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json_path', default='data/puzzles_dataset/puzzles_dataset.json', help='Path to json file')
-    parser.add_argument('--local_dir', default='data/puzzles_dataset', help='Local directory to save parquet files')
+    parser.add_argument('--json_path', default='../data/puzzles_dataset/puzzles_dataset.json', help='Path to json file')
+    parser.add_argument('--local_dir', default='../data/puzzles_dataset', help='Local directory to save parquet files')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--test_size', type=float, default=0.1, help='Proportion of data for test set')
     parser.add_argument('--data_source', default='ordering_puzzle_dataset', help='Name of data source')
-    parser.add_argument('--model_name', default='meta-llama/Llama-3.2-1B-Instruct', help='Name of model')
+    parser.add_argument('--model_type', default='instruct', choices = ['base', 'instruct'], help='Model type base or instruct')
     args = parser.parse_args()
     
     # Load dataset from CSV
     dataset = datasets.load_dataset('json', data_files=args.json_path)['train']
-    auth_token = os.getenv('HF_TOKEN')
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, auth_token = auth_token, padding_side = "left", truncation_side='left')
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, auth_token = auth_token, padding_side = "left", truncation_side='left')
-    # Function to transform data format
+   
+    prompt ="""A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
+
+User: {{prompt}} Please put your answer within <answer> and </answer> tags, for example <answer> ['pigeon', 'sparrow', 'quail'] </answer>.
+Assistant: <think>
+"""
     def make_map_fn(split):
         def process_fn(example, idx):
-            question = make_prefix(example, tokenizer)
+            question = make_prefix(example, args.model_type)
             num_objects = example['num_objects']
             final_arrangement = extract_from_ground_truth(example['ground_truth'])
-            return {
-                "data_source": args.data_source,
-                "prompt": [{
-                    "role": "user",
-                    "content": question,
-                }],
-                "ability": "problem_solving",
-                "reward_model": {
-                        "style": "rule",
-                        "ground_truth": final_arrangement
-                    },
-                "extra_info": {
-                    'id': example['id'] if 'id' in example else str(idx),
-                    'raw_instruction': example['instruction'],
-                    'raw_input': example['input'],
-                    'num_objects': num_objects,
+            if args.model_type == 'instruct':
+                return {
+                    "data_source": args.data_source,
+                    "prompt": [{
+                        "role": "user",
+                        "content": question,
+                    }],
+                    "ability": "logical_reasoning",
+                    "reward_model": {
+                            "style": "rule",
+                            "ground_truth": final_arrangement
+                        },
+                    "apply_chat_template": True,
+                    "extra_info": {
+                        'id': example['id'] if 'id' in example else str(idx),
+                        'raw_instruction': example['instruction'],
+                        'raw_input': example['input'],
+                        'num_objects': num_objects,
+                    }
                 }
-            }
+            elif args.model_type == 'base':
+                return {
+                    "data_source": args.data_source,
+                    "prompt": [],
+                    "raw_prompt": prompt.replace("{{prompt}}", question),
+                    "ability": "logical_reasoning",
+                    "reward_model": {
+                            "style": "rule",
+                            "ground_truth": final_arrangement
+                        },
+                    "apply_chat_template": False,
+                    "extra_info": {
+                        'id': example['id'] if 'id' in example else str(idx),
+                        'raw_instruction': example['instruction'],
+                        'raw_input': example['input'],
+                        'num_objects': num_objects,
+                    }
+                }
         return process_fn
     
     # Transform dataset
