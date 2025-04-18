@@ -76,6 +76,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         num_gen_batches = 0
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
+                # (bsz, seq_len)
                 metrics = {}
 
                 new_batch: DataProto = DataProto.from_single_dict(batch_dict)
@@ -119,6 +120,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         [str(uuid.uuid4()) for _ in range(len(new_batch.batch))], dtype=object)
                     # repeat to align with repeated responses in rollout
                     new_batch = new_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    # (bsz*n, seq_len), interleaved, i.e., [A, B] -> [A, A, A, A, B, B, B, B] for n=4
                     new_batch = new_batch.union(gen_batch_output)
 
                     with _timer('reward', timing_raw):
@@ -135,6 +137,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         try:
                             reward_result = self.reward_fn(new_batch, return_dict=True)
                             reward_tensor = reward_result['reward_tensor']
+                            # (bsz*n, resp_len), with each token having the outcome score
                             reward_extra_infos_dict = reward_result['reward_extra_info']
                         except Exception as e:
                             print(f'Error in reward_fn: {e}')

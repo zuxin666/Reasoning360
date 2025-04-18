@@ -107,7 +107,9 @@ def extract_solution(solution_str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="data/bigmath_preview_filtered_mar21_r1_zero_style")
+    parser.add_argument(
+        "--local_dir", default="data/bigmath_preview_filtered_mar21_r1_zero_style"
+    )
     parser.add_argument("--hdfs_dir", default=None)
 
     args = parser.parse_args()
@@ -134,7 +136,6 @@ if __name__ == "__main__":
         "Let's think step by step and output the final answer within \\boxed{}."
     )
 
-
     prompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
 
 User: {{prompt}} Please put your answer in \\boxed{} tags.
@@ -157,9 +158,7 @@ Assistant: <think>
                 "ability": "math",
                 "apply_chat_template": False,
                 "reward_model": {"style": "rule", "ground_truth": answer},
-                "extra_info": {"split": split, 
-                               "index": idx,
-                               "question": question},
+                "extra_info": {"split": split, "index": idx, "question": question},
             }
             if idx == 0:
                 print("=" * 10 + f"{data_source} {split} {idx}" + "=" * 10)

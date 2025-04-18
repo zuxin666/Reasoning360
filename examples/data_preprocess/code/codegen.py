@@ -24,9 +24,45 @@ from verl.utils.reward_score.coder1 import (
     fuzzy_equal
 )
 
-from examples.data_preprocess.code.code_utils import *
+# from examples.data_preprocess.code.code_utils import *
 
 WORKDING_DIR = os.path.join(os.environ.get("HOME"), "Reasoning360")
+
+SYSTEM_PROMPT = """You are a helpful programming assistant. \
+The user will ask you a question and you as the assistant solve it. \
+The assistant first thinks how to solve the task through reasoning and then provides the user with the final answer. \
+The reasoning process and answer are enclosed within <think>...</think> and <answer>...</answer> tags, respectively."""
+EMPTY_RETURN = {
+    "data_source": None,
+    "prompt": None,
+    "ability": None,
+    "reward_model": None,
+    "extra_info": None
+}
+N_TESTSET_PER_DATASET = 0
+
+def minimize_stdio(inputs, outputs, max_n_tests=8):
+    stdin_list = []
+    stdout_list = []
+    for stdin, stdout in zip(inputs, outputs):
+        if isinstance(stdin, list):
+            stdin = "\n".join(stdin)
+        if isinstance(stdout, list):
+            stdout = "\n".join(stdout)
+        if sys.getsizeof(stdin) > 4 * 1024:
+            continue
+        stdout.replace("\r\n", "\n")
+        stdin_list.append(stdin)
+        stdout_list.append(stdout)
+
+    zipped = sorted(zip(stdin_list, stdout_list), key=lambda x: sys.getsizeof(x[0]))
+
+    if not zipped:
+        print("No tests found!")
+        return [], []
+
+    sorted_stdin, sorted_stdout = zip(*zipped)
+    return list(sorted_stdin[:max_n_tests]), list(sorted_stdout[:max_n_tests])
 
 
 def kodcode():  # Thanks!!! to Zhangchen and Yueqin

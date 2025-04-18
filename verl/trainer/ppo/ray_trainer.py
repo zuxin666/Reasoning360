@@ -559,6 +559,7 @@ class RayPPOTrainer(object):
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
+            print(f"Shape of test_batch: {test_batch.batch['input_ids'].shape}")
 
             # repeat test batch
             test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n,
@@ -611,6 +612,8 @@ class RayPPOTrainer(object):
 
             # Store generated outputs
             output_ids = test_output_gen_batch.batch["responses"]
+            print(f"Shape of output_ids: {output_ids.shape}")
+            
             output_texts = [
                 self.tokenizer.decode(ids, skip_special_tokens=True)
                 for ids in output_ids
@@ -625,6 +628,8 @@ class RayPPOTrainer(object):
             result = self.val_reward_fn(test_batch, return_dict=True)
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
+            print(f"Shape of reward_tensor: {reward_tensor.shape}")
+            
             sample_scores.extend(scores)
             
             reward_extra_infos_dict["reward"].extend(scores)
@@ -1005,6 +1010,7 @@ class RayPPOTrainer(object):
                         )
                         # repeat to align with repeated responses in rollout
                         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                        # (bsz*n, )
                         batch.union(gen_batch_output)
 
                         batch.batch['response_mask'] = compute_response_mask(batch)

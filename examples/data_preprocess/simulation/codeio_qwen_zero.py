@@ -9,7 +9,33 @@ import torch
 import time
 import transformers
 
+from verl.utils.data_process.prompt import build_zero_style_prompt
+from verl.utils.data_process.utils import get_output_dir_name, set_seed
 from verl.utils.data_process.filter import LengthFilter
+
+InstructionFollow = "Please output the final answer within \\boxed{}."
+RawInputPredictionPrompt = """You are given a question that requires some input and output variables as follows:
+{{problem_description}}
+The input and output requirements are as follows:
+{{io_requirements}}
+Given the following {{given_type}}: 
+{{given}}
+Can you predict a feasible input without writing any code? Please reason and put your final answer in the following json format: "input": <your input>, where <your input> should be a dictionary, even if the there is only one input variable, with keys strictly match the input variables' names as specified. Please put your answer in \\boxed{} tags.
+Tip: Here is a reference code snippet for this question. You can refer to this code tov guide your reasoning but not copy spans of code directly.
+{{refcode}}
+
+"""
+RawOutputPredictionPrompt = """You are given a question that requires some input and output variables as follows:
+{{problem_description}}
+The input and output requirements are as follows:
+{{io_requirements}}
+Given the following {{given_type}}: 
+{{given}}
+Can you predict the output without writing any code? Please reason and put your final answer in the following json format: "output": <your output>, where <your output> should strictly match the the output requirement as specified. Please put your answer in \\boxed{} tags.
+Tip: Here is a reference code snippet for this question. You can refer to this code tov guide your reasoning but not copy spans of code directly.
+{{refcode}}
+
+"""
 
 def get_dataset(cache_dir, download=False):
     data_path = os.path.join(cache_dir, "PythonEdu-Reasoning.jsonl")
@@ -29,11 +55,6 @@ def get_dataset(cache_dir, download=False):
             N_code += 1
             data = json.loads(line)
             common_fields = {k: v for k, v in data.items() if k != "ios"} 
-            # processing each I/O and input prediction/output prediction task
-            # print("=" * 10)
-            # print(json.dumps(common_fields, indent=4))
-            # print(json.dumps(data["ios"], indent=4))
-            # for io in data["ios"]:
             if data["ios"]:
                 io = data["ios"][0]
                 dataset.append({**common_fields, "input": json.dumps(io["input"]), "output": json.dumps(io["output"]), "given_type": "input", "predict_type": "output"})
@@ -46,34 +67,36 @@ def get_dataset(cache_dir, download=False):
     return Dataset.from_list(train_dataset), Dataset.from_list(test_dataset)
 
 # Original CodeIO prompts
-RawInputPredictionPrompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
+# RawInputPredictionPrompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
 
-User: You are given a question that requires some input and output variables as follows:
-{{problem_description}}
-The input and output requirements are as follows:
-{{io_requirements}}
-Given the following {{given_type}}: 
-{{given}}
-Can you predict a feasible input without writing any code? Please reason and put your final answer in the following json format: "input": <your input>, where <your input> should be a dictionary, even if the there is only one input variable, with keys strictly match the input variables' names as specified. Please put your answer in \\boxed{} tags.
-Tip: Here is a reference code snippet for this question. You can refer to this code tov guide your reasoning but not copy spans of code directly.
-{{refcode}}
-Assistant: <think>
-"""
+# User: You are given a question that requires some input and output variables as follows:
+# {{problem_description}}
+# The input and output requirements are as follows:
+# {{io_requirements}}
+# Given the following {{given_type}}: 
+# {{given}}
+# Can you predict a feasible input without writing any code? Please reason and put your final answer in the following json format: "input": <your input>, where <your input> should be a dictionary, even if the there is only one input variable, with keys strictly match the input variables' names as specified. Please put your answer in \\boxed{} tags.
+# Tip: Here is a reference code snippet for this question. You can refer to this code tov guide your reasoning but not copy spans of code directly.
+# {{refcode}}
+# Assistant: <think>
+# """
 
-RawOutputPredictionPrompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
+# RawOutputPredictionPrompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
 
-User: You are given a question that requires some input and output variables as follows:
-{{problem_description}}
-The input and output requirements are as follows:
-{{io_requirements}}
-Given the following {{given_type}}: 
-{{given}}
-Can you predict the output without writing any code? Please reason and put your final answer in the following json format: "output": <your output>, where <your output> should strictly match the the output requirement as specified. Please put your answer in \\boxed{} tags.
-Tip: Here is a reference code snippet for this question. You can refer to this code tov guide your reasoning but not copy spans of code directly.
-{{refcode}}
-Please put your answer in \\boxed{} tags.
-Assistant: <think>
-"""
+# User: You are given a question that requires some input and output variables as follows:
+# {{problem_description}}
+# The input and output requirements are as follows:
+# {{io_requirements}}
+# Given the following {{given_type}}: 
+# {{given}}
+# Can you predict the output without writing any code? Please reason and put your final answer in the following json format: "output": <your output>, where <your output> should strictly match the the output requirement as specified. Please put your answer in \\boxed{} tags.
+# Tip: Here is a reference code snippet for this question. You can refer to this code tov guide your reasoning but not copy spans of code directly.
+# {{refcode}}
+# Please put your answer in \\boxed{} tags.
+# Assistant: <think>
+# """
+
+
 
 answer_template = """"{{predict_type}}": {{sol}}"""
 
@@ -87,7 +110,8 @@ def make_map_fn(split):
             Prompt = RawInputPredictionPrompt
         else:
             Prompt = RawOutputPredictionPrompt
-        raw_prompt = Prompt.replace("{{given_type}}", given_type)
+        raw_prompt = build_zero_style_prompt(prompt=Prompt, extra_instruction=InstructionFollow)
+        raw_prompt = raw_prompt.replace("{{given_type}}", given_type)
         for key in ["problem_description", "io_requirements", given_type, "refcode"]:
             feature = example.pop(key)
             if key in ["input", "output"]:
@@ -118,7 +142,7 @@ def make_map_fn(split):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output-dir', default='data/codeio_style', help='Directory to save the processed data files')
+    parser.add_argument('--output-dir', default='data/codeio', help='Directory to save the processed data files')
     parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
                         help='Prompt style to use: zero_style or instruction')
     parser.add_argument('--train-sample-size', type=int, default=None, 
@@ -129,10 +153,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # Set random seeds for reproducibility
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    args.output_dir = get_output_dir_name(args.output_dir, args.train_sample_size)
+    args.prompt_style = "zero_style"
 
     # Create output directory if it doesn't exist
     os.makedirs(args.output_dir, exist_ok=True)
