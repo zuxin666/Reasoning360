@@ -1,30 +1,32 @@
+"""Downloads, processes, and saves MultiHierTT table reasoning datasets."""
+
 import os
 import json
-import sys
-from transformers import AutoTokenizer
-from datasets import load_dataset, concatenate_datasets
-from datasets import Dataset
-from rich.rule import Rule
-
-import rich
-import matplotlib.pyplot as plt
-import datasets
-import time
 import argparse
 import random
-import numpy as np
-import torch
 import transformers
-from bs4 import BeautifulSoup
+from datasets import Dataset
 
-from verl.utils.data_process.filter import Filter, LengthFilter
+from verl.utils.data_process.filter import LengthFilter
+from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
+from verl.utils.data_process.prompt import build_zero_style_prompt
+
+
+InstructionFollow = "Please put your answer in \\boxed{} tags."
+RawPrompt = """You are given one or more tables. Use the information in the tables to answer the following question.
+{{tables}}
+The question is:
+{{question}}
+"""
+
 
 class MultiHierTTFilter(LengthFilter):
+    """Filter for MultiHierTT dataset to keep only arithmetic questions without text evidence."""
+    
     def __init__(self, tokenizer, max_length=2048):
         super().__init__(tokenizer=tokenizer, max_length=max_length)
 
     def check(self, example):
-        print(example["qa"])
         # Only keep arithmetic questions
         question_type = example["qa"]["question_type"]
         if question_type != "arithmetic":
@@ -35,27 +37,23 @@ class MultiHierTTFilter(LengthFilter):
             return False
         # Ensure the prompt length is within the specified range
         length_check = super().check(example)
-        # length_check = (self.min_length <= len(example["raw_prompt"].split()) <= self.max_length)
         if not length_check:
             return False
         
         return True
 
 
-WORKDING_DIR = os.path.join(os.environ.get("HOME"), "Reasoning360")
-
-Prompt = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
-
-User: You are given one or more tables. Use the information in the tables to answer the following question.
-{{tables}}
-The question is:
-{{question}}
-Please put your answer in \\boxed{} tags.
-Assistant: <think>
-"""
-
-
 def get_dataset(cache_dir, download=False):
+    """
+    Load the MultiHierTT dataset from cache or download it if necessary.
+    
+    Args:
+        cache_dir (str): Directory to cache the dataset
+        download (bool): Whether to download the dataset if not found
+        
+    Returns:
+        tuple: (train_dataset, test_dataset) as Dataset objects
+    """
     data_path = os.path.join(cache_dir, "multihier/")
     if download: 
         if os.path.exists(data_path):
@@ -170,46 +168,9 @@ def html_table_to_markdown(table):
             markdown_rows.append(separator)
     
     return '\n'.join(markdown_rows)
-    
 
-def _tiny_analyze(dataset):
-    tokenizer = transformers.AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B")
-    max_length = 0
-    min_length = 100000
-    mean_length = 0
-    std_length = 0
-    num_arithmetic = 0
-    num_need_text = 0
-    for entry in dataset:
-        text_string = " ".join(entry["paragraphs"])
-        table_string = "\n".join(entry["tables"])
-        question = entry["qa"]["question"]
-        answer = entry["qa"]["answer"]
-        prompt = text_string + table_string + question
-        prompt_tokens = tokenizer.tokenize(prompt)
-        max_length = max(max_length, len(prompt_tokens))
-        min_length = min(min_length, len(prompt_tokens))
-        mean_length += len(prompt_tokens)
-        std_length += len(prompt_tokens) ** 2
-        question_type = entry["qa"]["question_type"]
-        if question_type == "arithmetic":
-            num_arithmetic += 1
-        need_text = entry["qa"]["text_evidence"] != []
-        if need_text:
-            num_need_text += 1
-    mean_length /= len(dataset)
-    std_length = np.sqrt(std_length / len(dataset) - mean_length ** 2)
-    print("=" * 10 + "Tiny Analyze" + "=" * 10)
-    print(f"Max prompt length: {max_length}")
-    print(f"Min prompt length: {min_length}")
-    print(f"Mean prompt length: {mean_length}")
-    print(f"Std prompt length: {std_length}")
-    print(f"Number of arithmetic questions: {num_arithmetic}")
-    print(f"Number of questions need text: {num_need_text}")
 
-# Input Prediction
-def make_map_fn(split):
-
+def make_map_fn(split, data_source, prompt_style):
     def process_fn(example, idx):
         try:
             tables = example.pop("tables")
@@ -217,24 +178,31 @@ def make_map_fn(split):
             question = example["qa"]["question"]
             answer = example["qa"]["answer"]
             table_string = "\n".join([html_table_to_markdown(table) for table in tables])
-            raw_prompt = Prompt.replace("{{tables}}", table_string).replace("{{question}}", question)
+            
+            if prompt_style == "zero_style":
+                prompt = build_zero_style_prompt(prompt=RawPrompt, extra_instruction=InstructionFollow)
+                raw_prompt = prompt.replace("{{tables}}", table_string).replace("{{question}}", question)
+            else:
+                raise ValueError(f"Invalid prompt style: {prompt_style}")
+                
         except Exception as e:
             print(e)
             print(tables)
             exit()
+            
         data = {
-            "data_source": "tablereason-multihiertt",
+            "data_source": data_source,
             "prompt": [],
             "raw_prompt": raw_prompt,
             "ability": "tablereason",
             "apply_chat_template": False,
             "reward_model": {"style": "rule", "ground_truth": answer},
             "extra_info": {"split": split, 
-                            "index": idx,
-                           },
+                           "index": idx,
+                          },
         }
         if idx == 0 or idx == 1:
-            print("=" * 10 + f"{split} {idx}" + "=" * 10)
+            print("\n" + "=" * 10 + f"{data_source} {split} {idx}" + "=" * 10)
             print(data)
         return data
 
@@ -242,64 +210,65 @@ def make_map_fn(split):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--output-dir', default='data/multihier', help='Directory to save the processed data files')
-    parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
-                        help='Prompt style to use: zero_style or instruction')
+    parser = argparse.ArgumentParser(description="Download, process, and save MultiHierTT table reasoning datasets.")
+    parser.add_argument('--data-dir', default='data',
+                        help='Base directory to save the processed data files.')
+    parser.add_argument('--output-train-filename', default='tableqa__multihier',
+                        help='Filename prefix for the processed training data.')
+    parser.add_argument('--output-test-filename', default='tableqa__multihier',
+                        help='Filename prefix for the processed test data.')
     parser.add_argument('--train-sample-size', type=int, default=None, 
                         help='Number of samples to use from training dataset. If None, use all samples.')
     parser.add_argument('--test-sample-size', type=int, default=None,
                         help='Number of samples to use from test dataset. If None, use all samples.')
+    parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
+                        help='Prompt style to use: zero_style for think-then-answer format.')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     args = parser.parse_args()
 
-    # Set random seeds for reproducibility
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    # Config
+    set_seed(args.seed)
+    data_source = args.output_train_filename
+    train_output_dir = os.path.join(args.data_dir, 'train')
+    test_output_dir = os.path.join(args.data_dir, 'test')
 
-    # Modify output directory name based on train sample size
-    output_dir_name = args.output_dir
-    if args.train_sample_size is not None:
-        if (args.train_sample_size / 1000) % 1 != 0:
-            size_str = f"{args.train_sample_size / 1000:.1f}k"
-        else:
-            size_str = f"{args.train_sample_size // 1000}k"
-            
-        if "_" in output_dir_name:
-            name_parts = output_dir_name.split("_", 1)
-            output_dir_name = f"{name_parts[0]}{size_str}_{name_parts[1]}"
-        else:
-            output_dir_name = f"{output_dir_name}{size_str}"
-    
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir_name, exist_ok=True)
-
-    # Get CodeIO dataset
+    # Download dataset
     train_dataset, test_dataset = get_dataset(f"{os.path.expanduser('~')}/.cache/huggingface/datasets", download=True)
-    
-    # # tiny analyze
-    # _tiny_analyze(train_dataset)
-    # _tiny_analyze(test_dataset)
 
-    train_dataset = train_dataset.map(function=make_map_fn('train'), with_indices=True)
-    test_dataset = test_dataset.map(function=make_map_fn('test'), with_indices=True)
-    # Calculate max lengths for train and test datasets
+    # Process datasets
+    process_train_fn = make_map_fn('train', data_source, args.prompt_style)
+    process_test_fn = make_map_fn('test', data_source, args.prompt_style)
+    train_dataset = train_dataset.map(function=process_train_fn, with_indices=True)
+    test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
+    
+    # Filter dataset
     tokenizer = transformers.AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B")
     table_filter = MultiHierTTFilter(tokenizer=tokenizer, max_length=4096)
     train_dataset = train_dataset.filter(lambda x: table_filter.check(x))
     test_dataset = test_dataset.filter(lambda x: table_filter.check(x))
+    args.train_sample_size = len(train_dataset) if args.train_sample_size is None else args.train_sample_size
+    args.test_sample_size = len(test_dataset) if args.test_sample_size is None else args.test_sample_size
     
-    if args.train_sample_size is not None:
-        train_dataset = train_dataset.select(range(args.train_sample_size))
-    if args.test_sample_size is not None:
-        test_dataset = test_dataset.select(range(args.test_sample_size))
-
+    # Sample datasets if specified
+    train_dataset = sample_dataset(train_dataset, args.train_sample_size)
+    test_dataset = sample_dataset(test_dataset, args.test_sample_size)
+    
     # Save datasets
-    train_dataset.to_parquet(os.path.join(output_dir_name, 'train.parquet'))
-    test_dataset.to_parquet(os.path.join(output_dir_name, 'test.parquet'))
+    train_output_path = save_dataset(
+        dataset=train_dataset,
+        output_dir=train_output_dir,
+        filename_prefix=args.output_train_filename,
+        sample_size=args.train_sample_size
+    )
+    test_output_path = save_dataset(
+        dataset=test_dataset,
+        output_dir=test_output_dir,
+        filename_prefix=args.output_test_filename,
+        sample_size=args.test_sample_size
+    )
     
-    print(f"train data size:", len(train_dataset))
-    print(f"test data size:", len(test_dataset))
-    print(f"Output saved to: {output_dir_name}")
+    print(f"\nDone! \n"
+          f"Data source: {data_source}\n"
+          f"Train data saved to {train_output_path} ({len(train_dataset)} samples)\n"
+          f"Test data saved to {test_output_path} ({len(test_dataset)} samples)")

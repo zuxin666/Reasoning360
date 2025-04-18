@@ -36,5 +36,5 @@ class LengthFilter(Filter):
             prompt_tokens = self.tokenizer.tokenize(data_entry["raw_prompt"])
         else:
             raise ValueError("No prompt found in data")
-        print(f"Prompt length: {len(prompt_tokens)}")
+        # print(f"Prompt length: {len(prompt_tokens)}")
         return self.min_length <= len(prompt_tokens) <= self.max_length - self.length_tolerance

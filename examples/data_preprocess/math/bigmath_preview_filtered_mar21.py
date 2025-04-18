@@ -8,16 +8,42 @@ import argparse
 import pandas as pd
 import json
 import random
+import transformers
 
 from verl.utils.reward_score.math import remove_boxed, last_boxed_only_string
 from verl.utils.data_process.prompt import build_zero_style_prompt
-from verl.utils.data_process.utils import add_suffix, set_seed
+from verl.utils.data_process.utils import add_suffix, set_seed, sample_dataset, save_dataset
 
 InstructionFollow = "Please output the final answer within \\boxed{}."
 
 def extract_solution(solution_str: str) -> str:
     """Extracts the final answer assuming it's in the last \\boxed{}."""
     return remove_boxed(last_boxed_only_string(solution_str))
+
+
+def get_datasets(train_data_source, test_data_sources):
+    """
+    Load the math datasets from Hugging Face Hub.
+    
+    Args:
+        train_data_source (str): Source for training data
+        test_data_sources (list): List of sources for test data
+        
+    Returns:
+        tuple: (train_dataset, test_datasets) as Dataset objects
+    """
+    print(f"Loading the {train_data_source} dataset...")
+    train_dataset = datasets.load_dataset(
+        train_data_source, trust_remote_code=True, split="train"
+    )
+    
+    print(f"Loading the test datasets...")
+    test_datasets = [
+        datasets.load_dataset(test_data_source, trust_remote_code=True, split="test")
+        for test_data_source in test_data_sources
+    ]
+    
+    return train_dataset, test_datasets
 
 
 def make_map_fn(split: str, data_source: str, prompt_style: str) -> callable:
@@ -41,7 +67,7 @@ def make_map_fn(split: str, data_source: str, prompt_style: str) -> callable:
                 "extra_info": {"split": split, "index": idx},
             }
         else:
-            raise ValueError(f"Invalid prompt style: {args.prompt_style}")
+            raise ValueError(f"Invalid prompt style: {prompt_style}")
 
         if idx == 0:
             print(f"data_source: {data_source}, split: {split}, idx: {idx}")
@@ -62,7 +88,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--output-train-filename",
-        default="bigmath_filtered_mar21",
+        default="math__bigmath_filtered_mar21",
         help="Directory to save the processed data files. Will be modified based on other parameters.",
     )
     parser.add_argument(
@@ -87,6 +113,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     set_seed(args.seed)
 
+    # Configure data sources
     train_data_source = "SDSB/big_math_partial_mar21_filtered_basic"
     test_data_sources = [
         "nanoverl/minerva",
@@ -97,41 +124,38 @@ if __name__ == "__main__":
     ]
 
     # Download the datasets from Hugging Face Hub
-    cache_dir = datasets.config.HF_DATASETS_CACHE
-    print(f"Loading the {train_data_source} dataset...")
-    train_dataset = datasets.load_dataset(
-        train_data_source, trust_remote_code=True, split="train"
+    train_dataset, test_datasets = get_datasets(train_data_source, test_data_sources)
+
+    # Process train dataset
+    process_train_fn = make_map_fn("train", train_data_source, args.prompt_style)
+    train_data = train_dataset.map(function=process_train_fn, with_indices=True)
+    # Sample
+    train_data = sample_dataset(train_data, args.train_sample_size)
+    # Save
+    train_output_dir = os.path.join(args.data_dir, "train")
+    args.train_sample_size = len(train_dataset) if args.train_sample_size is None else args.train_sample_size
+    train_output_path = save_dataset(
+        dataset=train_data,
+        output_dir=train_output_dir,
+        filename_prefix=args.output_train_filename,
+        sample_size=args.train_sample_size
     )
-    print(f"Loading the test datasets...")
-    test_datasets = [
-        datasets.load_dataset(test_data_source, trust_remote_code=True, split="test")
-        for test_data_source in test_data_sources
-    ]
 
-    # Process the train dataset using the map function
-    train_data = train_dataset.map(function=make_map_fn("train", train_data_source, args.prompt_style), with_indices=True)
-    if args.train_sample_size is not None:
-        # Optionally sample the training data
-        train_indices = list(range(len(train_data)))
-        random.shuffle(train_indices)
-        train_indices = train_indices[: min(args.train_sample_size, len(train_data))]
-        train_data = train_data.select(train_indices)
-
-    # Save the processed train data to a Parquet file
-    args.output_train_filename = add_suffix(args.output_train_filename, args.train_sample_size)
-    train_data.to_parquet(os.path.join(args.data_dir, f"{args.output_train_filename}.parquet"))
-    print(f"train data size:", len(train_data))
-    print(train_data[0])
-
-    # Process and save each test dataset
+    # Process test datasets
+    test_output_dir = os.path.join(args.data_dir, "test")
+    test_output_paths = []
     for test_data_source, test_data in zip(test_data_sources, test_datasets):
         process_fn = make_map_fn("test", test_data_source, args.prompt_style)
         test_data = test_data.map(process_fn, with_indices=True)
         dataset_name = os.path.basename(test_data_source.lower())
-        test_df = pd.DataFrame(test_data)
-        test_df.to_parquet(os.path.join(args.data_dir, "test", f"{dataset_name}.parquet")) # Save test data
-        print(f"test data size: ({dataset_name})", len(test_df))
+        test_output_path = save_dataset(
+            dataset=test_data,
+            output_dir=test_output_dir,
+            filename_prefix=f"math__{dataset_name}",
+            sample_size=None
+        )
+        test_output_paths.append(test_output_path)
 
     print(f"Done! \n"
-          f"Train data saved to {args.data_dir}/train/{args.output_train_filename}.parquet\n"
-          f"Test data saved to {args.data_dir}/test/")
+          f"Train data saved to {train_output_path}\n"
+          f"Test data saved to {test_output_paths}")
