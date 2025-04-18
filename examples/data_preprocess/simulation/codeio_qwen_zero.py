@@ -10,6 +10,7 @@ import time
 import transformers
 
 from verl.utils.data_process.prompt import build_zero_style_prompt
+from verl.utils.data_process.utils import get_output_dir_name, set_seed
 from verl.utils.data_process.filter import LengthFilter
 
 InstructionFollow = "Please output the final answer within \\boxed{}."
@@ -111,7 +112,6 @@ def make_map_fn(split):
             Prompt = RawOutputPredictionPrompt
         raw_prompt = build_zero_style_prompt(prompt=Prompt, extra_instruction=InstructionFollow)
         raw_prompt = raw_prompt.replace("{{given_type}}", given_type)
-        # raw_prompt = Prompt.replace("{{given_type}}", given_type)
         for key in ["problem_description", "io_requirements", given_type, "refcode"]:
             feature = example.pop(key)
             if key in ["input", "output"]:
@@ -153,10 +153,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # Set random seeds for reproducibility
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    args.output_dir = get_output_dir_name(args.output_dir, args.train_sample_size)
+    args.prompt_style = "zero_style"
 
     # Create output directory if it doesn't exist
     os.makedirs(args.output_dir, exist_ok=True)
