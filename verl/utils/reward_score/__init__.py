@@ -108,7 +108,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, reward_metri
         # TODO: tmp placeholder using math_verify
         from . import tablereason
         res = tablereason.compute_score(solution_str, ground_truth)
-    elif data_source.startswith('codegen'):
+    elif data_source.startswith('code'):
         from . import coder1
 
         res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)

@@ -11,11 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Preprocess the https://huggingface.co/datasets/agentica-org/DeepScaleR-Preview-Dataset to parquet format
-Code referring to https://github.com/agentica-project/deepscaler/blob/main/scripts/data/deepscaler_dataset.py
-"""
-
 import os
 import datasets
 from typing import Dict, List, Optional, Any, Union
@@ -29,6 +24,10 @@ import torch
 
 from verl.utils.hdfs_io import copy, makedirs
 from verl.utils.reward_score.math import remove_boxed, last_boxed_only_string
+from verl.utils.data_process.prompt import build_zero_style_prompt
+from verl.utils.data_process.utils import get_output_dir_name, set_seed
+
+InstructionFollow = "Please output the final answer within \\boxed{}."
 
 
 class TrainDataset(enum.Enum):
@@ -108,15 +107,6 @@ def extract_solution(solution_str):
     return remove_boxed(last_boxed_only_string(solution_str))
 
 
-# Define prompt templates as constants
-INSTRUCTION_FOLLOWING = "Please output the final answer within \\boxed{}."
-
-ZERO_STYLE_PROMPT_TEMPLATE = """A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the user with the response. The reasoning process is enclosed within <think> </think> i.e., <think> reasoning process here </think> respond to the user's question here.
-
-User: {{prompt}} Please put your answer in \\boxed{} tags.
-Assistant: <think>
-"""
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -151,35 +141,9 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    args.output_dir = get_output_dir_name(args.output_dir, args.train_sample_size)
+    set_seed(args.seed)
 
-    # Get the base directory and filename
-    output_dir_base = os.path.dirname(args.output_dir)
-    output_dir_name = os.path.basename(args.output_dir)
-
-    # Modify output directory name based on prompt style
-    if args.prompt_style == "instruction":
-        output_dir_name = f"{output_dir_name}_instruction_style"
-
-    # Modify output directory name based on train sample size
-    if (args.train_sample_size / 1000) % 1 != 0:
-        size_str = f"{args.train_sample_size / 1000:.1f}k"
-    else:
-        size_str = f"{args.train_sample_size // 1000}k"
-
-    if args.train_sample_size is not None:
-        if "_" in output_dir_name:
-            name_parts = output_dir_name.split("_", 1)
-            output_dir_name = f"{name_parts[0]}{size_str}_{name_parts[1]}"
-        else:
-            output_dir_name = f"{output_dir_name}{size_str}"
-
-    # Set the final output directory
-    args.output_dir = os.path.join(output_dir_base, output_dir_name)
-
-    # Set random seeds for reproducibility
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
 
     train_data_source = "SDSB/big_math_partial_mar21_filtered_basic"
     test_data_sources = [
@@ -230,10 +194,10 @@ if __name__ == "__main__":
 
     # Define prompts based on style - now using constants
     if args.prompt_style == "zero_style":
-        prompt = ZERO_STYLE_PROMPT_TEMPLATE
+        prompt = build_zero_style_prompt(extra_instruction=InstructionFollow)
     else:  # instruction style
-        prompt = None  # Not used in instruction style
-
+        raise ValueError(f"Invalid prompt style: {args.prompt_style}")
+    
     # add a row to each data item that represents a unique id
     def make_map_fn(split, data_source):
         def process_fn(example, idx):
@@ -241,30 +205,14 @@ if __name__ == "__main__":
             answer = example.pop("answer")
 
             if args.prompt_style == "zero_style":
-                # Zero-shot style with think-then-answer format
                 data = {
                     "data_source": data_source,
-                    "prompt": [],
+                    "prompt": [],  # no messages-like prompt. instead, use from-scratch raw_prompt
                     "raw_prompt": prompt.replace("{{prompt}}", question),
                     "ability": "math",
                     "apply_chat_template": False,
                     "reward_model": {"style": "rule", "ground_truth": answer},
                     "extra_info": {"split": split, "index": idx},
-                }
-            elif args.prompt_style == "instruction":
-                # Instruction style with direct chat format
-                question_with_instruction = question + " " + INSTRUCTION_FOLLOWING
-                data = {
-                    "data_source": data_source,
-                    "prompt": [{"role": "user", "content": question_with_instruction}],
-                    "ability": "math",
-                    "apply_chat_template": True,
-                    "reward_model": {"style": "rule", "ground_truth": answer},
-                    "extra_info": {
-                        "split": split,
-                        "index": idx,
-                        "question": question_with_instruction,
-                    },
                 }
             else:
                 raise ValueError(f"Invalid prompt style: {args.prompt_style}")
