@@ -48,26 +48,32 @@ def collate_fn(data_list: list[dict]) -> dict:
     return {**tensors, **non_tensors}
 
 
-def process_image(image: dict, max_pixels: int = 2048 * 2048, min_pixels: int = 512 * 512):
+def process_image(
+    image: dict, max_pixels: int = 2048 * 2048, min_pixels: int = 512 * 512
+):
     import math
     from io import BytesIO
     from PIL import Image
 
     if isinstance(image, dict):
-        image = Image.open(BytesIO(image['bytes']))
+        image = Image.open(BytesIO(image["bytes"]))
 
     if (image.width * image.height) > max_pixels:
         resize_factor = math.sqrt(max_pixels / (image.width * image.height))
-        width, height = int(image.width * resize_factor), int(image.height * resize_factor)
+        width, height = int(image.width * resize_factor), int(
+            image.height * resize_factor
+        )
         image = image.resize((width, height))
 
     if (image.width * image.height) < min_pixels:
         resize_factor = math.sqrt(min_pixels / (image.width * image.height))
-        width, height = int(image.width * resize_factor), int(image.height * resize_factor)
+        width, height = int(image.width * resize_factor), int(
+            image.height * resize_factor
+        )
         image = image.resize((width, height))
 
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
+    if image.mode != "RGB":
+        image = image.convert("RGB")
 
     return image
 
@@ -77,19 +83,21 @@ class RLHFDataset(Dataset):
     We assume the dataset contains a column that contains prompts and other information
     """
 
-    def __init__(self,
-                 parquet_files: Union[str, List[str]],
-                 tokenizer: PreTrainedTokenizer,
-                 processor: Optional[ProcessorMixin] = None,
-                 prompt_key='prompt',
-                 image_key='images',
-                 max_prompt_length=1024,
-                 filter_prompts=True,
-                 cache_dir='~/.cache/verl/rlhf',
-                 chat_template_func=None,
-                 return_raw_chat=False,
-                 truncation='error',
-                 filter_overlong_prompts=False):
+    def __init__(
+        self,
+        parquet_files: Union[str, List[str]],
+        tokenizer: PreTrainedTokenizer,
+        processor: Optional[ProcessorMixin] = None,
+        prompt_key="prompt",
+        image_key="images",
+        max_prompt_length=1024,
+        filter_prompts=True,
+        cache_dir="~/.cache/verl/rlhf",
+        chat_template_func=None,
+        return_raw_chat=False,
+        truncation="error",
+        filter_overlong_prompts=False,
+    ):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
 
@@ -117,9 +125,16 @@ class RLHFDataset(Dataset):
 
     def _download(self, use_origin_parquet=False):
         from verl.utils.fs import copy_to_local
-        parquet_files = self.parquet_files if not use_origin_parquet else self.original_parquet_files
+
+        parquet_files = (
+            self.parquet_files
+            if not use_origin_parquet
+            else self.original_parquet_files
+        )
         for i, parquet_file in enumerate(parquet_files):
-            self.parquet_files[i] = copy_to_local(src=parquet_file, cache_dir=self.cache_dir)
+            self.parquet_files[i] = copy_to_local(
+                src=parquet_file, cache_dir=self.cache_dir
+            )
 
     def _read_files_and_tokenize(self):
         dataframes = []
@@ -129,14 +144,16 @@ class RLHFDataset(Dataset):
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
 
-        print(f'dataset len: {len(self.dataframe)}')
+        print(f"dataset len: {len(self.dataframe)}")
 
         print(self.dataframe.head())
 
         # Safely check if apply_chat_template exists in dataframe
         # NOTE: added by Reasoning360
         if "apply_chat_template" not in self.dataframe:
-            print("Warning: apply_chat_template column not found in dataframe. Defaulting to True.")
+            print(
+                "Warning: apply_chat_template column not found in dataframe. Defaulting to True."
+            )
             self.dataframe["apply_chat_template"] = [True] * len(self.dataframe)
 
         # filter out too long prompts
@@ -146,23 +163,33 @@ class RLHFDataset(Dataset):
             self.dataframe = self.dataframe[
                 self.dataframe.apply(
                     lambda doc: len(
-                        tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True)
-                        if doc["apply_chat_template"] else tokenizer.encode(doc["raw_prompt"])
-                    ) <= self.max_prompt_length,
-                    axis=1
+                        tokenizer.apply_chat_template(
+                            doc[prompt_key], add_generation_prompt=True
+                        )
+                        if doc["apply_chat_template"]
+                        else tokenizer.encode(doc["raw_prompt"])
+                    )
+                    <= self.max_prompt_length,
+                    axis=1,
                 )
             ]
 
-            print(f'filter dataset len: {len(self.dataframe)}')
+            print(f"filter dataset len: {len(self.dataframe)}")
 
     def resume_dataset_state(self):
-        self.serialize_dataset = False if hasattr(self, 'original_parquet_files') else True
+        self.serialize_dataset = (
+            False if hasattr(self, "original_parquet_files") else True
+        )
         # resume dataframe if not it's serialized in data.pt
         if not self.serialize_dataset:
-            self._download(use_origin_parquet=True)  # download and resume from original parquet files
+            self._download(
+                use_origin_parquet=True
+            )  # download and resume from original parquet files
             self._read_files_and_tokenize()
         else:
-            print(r'old dataloader ckpt file is used, please train from scratch for better ckpt performance')
+            print(
+                r"old dataloader ckpt file is used, please train from scratch for better ckpt performance"
+            )
 
     def __len__(self):
         return len(self.dataframe)
@@ -175,40 +202,60 @@ class RLHFDataset(Dataset):
 
         chat = row_dict.pop(self.prompt_key)
 
-        prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False) \
-            if row_dict["apply_chat_template"] else row_dict["raw_prompt"]
+        prompt_with_chat_template = (
+            self.tokenizer.apply_chat_template(
+                chat, add_generation_prompt=True, tokenize=False
+            )
+            if row_dict["apply_chat_template"]
+            else row_dict["raw_prompt"]
+        )
 
         is_multi_modal = self.image_key in row_dict
         if is_multi_modal:  # expand image token
-            raw_prompt = prompt_with_chat_template.replace('<image>', '<|vision_start|><|image_pad|><|vision_end|>')
-            row_dict['multi_modal_data'] = {'image': [process_image(image) for image in row_dict.pop(self.image_key)]}
-            image_inputs = self.processor.image_processor(row_dict['multi_modal_data']['image'], return_tensors='pt')
-            image_grid_thw = image_inputs['image_grid_thw']
-            row_dict['multi_modal_inputs'] = {key: val for key, val in image_inputs.items()}
+            raw_prompt = prompt_with_chat_template.replace(
+                "<image>", "<|vision_start|><|image_pad|><|vision_end|>"
+            )
+            row_dict["multi_modal_data"] = {
+                "image": [
+                    process_image(image) for image in row_dict.pop(self.image_key)
+                ]
+            }
+            image_inputs = self.processor.image_processor(
+                row_dict["multi_modal_data"]["image"], return_tensors="pt"
+            )
+            image_grid_thw = image_inputs["image_grid_thw"]
+            row_dict["multi_modal_inputs"] = {
+                key: val for key, val in image_inputs.items()
+            }
 
             if image_grid_thw is not None:
                 merge_length = self.processor.image_processor.merge_size**2
                 index = 0
-                while '<image>' in prompt_with_chat_template:
+                while "<image>" in prompt_with_chat_template:
                     prompt_with_chat_template = prompt_with_chat_template.replace(
-                        '<image>',
-                        '<|vision_start|>' + '<|placeholder|>' * (image_grid_thw[index].prod() // merge_length) +
-                        '<|vision_end|>',
+                        "<image>",
+                        "<|vision_start|>"
+                        + "<|placeholder|>"
+                        * (image_grid_thw[index].prod() // merge_length)
+                        + "<|vision_end|>",
                         1,
                     )
                     index += 1
 
-                prompt_with_chat_template = prompt_with_chat_template.replace('<|placeholder|>',
-                                                                              self.processor.image_token)
+                prompt_with_chat_template = prompt_with_chat_template.replace(
+                    "<|placeholder|>", self.processor.image_token
+                )
         else:
             raw_prompt = prompt_with_chat_template
 
-        input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
-                                                                         tokenizer=self.tokenizer,
-                                                                         max_length=self.max_prompt_length,
-                                                                         pad_token_id=self.tokenizer.pad_token_id,
-                                                                         left_pad=True,
-                                                                         truncation=self.truncation)
+        input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(
+            prompt=prompt_with_chat_template,
+            tokenizer=self.tokenizer,
+            max_length=self.max_prompt_length,
+            pad_token_id=self.tokenizer.pad_token_id,
+            left_pad=True,
+            truncation=self.truncation,
+        )
 
         if is_multi_modal:
             from verl.models.transformers.qwen2_vl import get_rope_index
@@ -222,14 +269,16 @@ class RLHFDataset(Dataset):
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 
-        row_dict['input_ids'] = input_ids[0]
-        row_dict['attention_mask'] = attention_mask[0]
-        row_dict['position_ids'] = position_ids[0]
-        row_dict['raw_prompt_ids'] = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
+        row_dict["input_ids"] = input_ids[0]
+        row_dict["attention_mask"] = attention_mask[0]
+        row_dict["position_ids"] = position_ids[0]
+        row_dict["raw_prompt_ids"] = self.tokenizer.encode(
+            raw_prompt, add_special_tokens=False
+        )
 
         # encode prompts without chat template
         if self.return_raw_chat:
-            row_dict['raw_prompt'] = chat.tolist()
+            row_dict["raw_prompt"] = chat.tolist()
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)
@@ -241,7 +290,7 @@ class RLHFDataset(Dataset):
         if not self.serialize_dataset:
             state = self.__dict__.copy()
 
-            if 'dataframe' in state:
-                del state['dataframe']
+            if "dataframe" in state:
+                del state["dataframe"]
             return state
         return self.__dict__.copy()

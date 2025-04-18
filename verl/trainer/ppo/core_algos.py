@@ -129,7 +129,7 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
             shape: (bs, response_length)
     """
     response_length = token_level_rewards.shape[-1]
-    scores = token_level_rewards.sum(dim=-1)
+    scores = token_level_rewards.sum(dim=-1)  # (bsz,) response-wise score, i.e., sum of all token scores
 
     id2score = defaultdict(list)
     id2mean = {}
@@ -138,7 +138,8 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
     with torch.no_grad():
         bsz = scores.shape[0]
         for i in range(bsz):
-            id2score[index[i]].append(scores[i])
+            id2score[index[i]].append(scores[i])  # index records idx in bsz -> idx in prompt. e.g, [0, 0, 1, 1, 2, 2] -> [0, 1, 2]
+            # id2score: {0: [1, 1, 0, 1], 1: [0, 0, 0, 1], ..., bsz: [1, 1, 1, 1]}
         for idx in id2score:
             if len(id2score[idx]) == 1:
                 id2mean[idx] = torch.tensor(0.0)
@@ -149,8 +150,8 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
-            scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
-        scores = scores.unsqueeze(-1).tile([1, response_length]) * eos_mask
+            scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)  # (bsz, )
+        scores = scores.unsqueeze(-1).tile([1, response_length]) * eos_mask  # (bsz, resp_len)
 
     return scores, scores
 
