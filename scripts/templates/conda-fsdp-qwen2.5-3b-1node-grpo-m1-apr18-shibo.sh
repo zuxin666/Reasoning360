@@ -17,7 +17,8 @@ WANDB_PROJECT=Reasoning360
 WANDB_EXPERIMENT_NAME=${BASE_MODEL##*/}-${SLURM_JOB_ID}
 
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export GLOO_SOCKET_IFNAME=ens10f0np0
+export HYDRA_FULL_ERROR=1
+export VLLM_USE_V1=0
 
 "${CONDA_BIN_PATH}python" -m verl.trainer.main_ppo \
     data.train_files="$train_files" \
@@ -30,13 +31,16 @@ export GLOO_SOCKET_IFNAME=ens10f0np0
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=32 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
+    actor_rollout_ref.rollout.enforce_eager=True \
+    actor_rollout_ref.rollout.free_cache_engine=True \
+    actor_rollout_ref.rollout.n=32 \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding=True \
     critic.model.path=${BASE_MODEL} \
