@@ -43,6 +43,9 @@ def extract_solution(solution_str):
                 return solution
             except json.JSONDecodeError:
                 return None
+        except Exception as e:
+            print(f"Error extracting solution: {e}")
+            return None
     else:
         return None
 

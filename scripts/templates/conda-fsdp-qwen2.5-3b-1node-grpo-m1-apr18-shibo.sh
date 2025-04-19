@@ -18,7 +18,7 @@ train_files="['data/train/logic__graph_logical_dataset_2.0k.parquet', 'data/trai
 BASE_MODEL=${HOME}/hf_models/Qwen2.5-3B
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=${BASE_MODEL##*/}-${SLURM_JOB_ID}
+WANDB_EXPERIMENT_NAME=${BASE_MODEL##*/}-Logic
 
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export HYDRA_FULL_ERROR=1
