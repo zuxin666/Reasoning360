@@ -4,10 +4,14 @@ set -x
 
 WORKING_DIR=${HOME}/Reasoning360
 DATA_DIR=${WORKING_DIR}/data
-bigmath_train_path=${DATA_DIR}/train/math__bigmath_filtered_mar21_10k.parquet
-math_test_path=${DATA_DIR}/test/math__math_500.parquet
-train_files="['$bigmath_train_path']"
-test_files="['$math_test_path']"
+
+# bigmath_train_path=${DATA_DIR}/train/math__bigmath_filtered_mar21_10k.parquet
+# math_test_path=${DATA_DIR}/test/math__math_500.parquet
+# train_files="['$bigmath_train_path']"
+# test_files="['$math_test_path']"
+
+test_files="['data/test/logic__graph_logical_dataset_201.parquet', 'data/test/logic__ordering_puzzle_dataset_200.parquet', 'data/test/logic__zebra_puzzle_dataset_200.parquet']"
+train_files="['data/train/logic__graph_logical_dataset_2.0k.parquet', 'data/train/logic__ordering_puzzle_dataset_2k.parquet', 'data/train/logic__zebra_puzzle_dataset_2k.parquet']"
 
 # first download the model from huggingface
 # huggingface-cli download Qwen/Qwen2.5-3B --local-dir ~/hf_models/Qwen2.5-3B
