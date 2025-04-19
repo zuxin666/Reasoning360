@@ -33,7 +33,7 @@ def get_datasets(cache_dir: str):
         tuple: (train_dataset, test_datasets) as Dataset objects
     """
     train_data_source = "SDSB/big_math_partial_mar21_filtered_basic"
-    test_data_sources = [
+    test_data_sources = [ # hard-coded for now as only bigmath handles all the test datasets
         "nanoverl/minerva",
         "SDSB/aime_repeated_8x",
         "SDSB/amc_repeated_4x",
@@ -159,7 +159,7 @@ if __name__ == "__main__":
         "olympiad_bench",
         "math",
     ]
-    for test_data_source, test_data in zip([], test_datasets):
+    for test_data_source, test_data in zip(test_data_sources, test_datasets):
         process_fn = make_map_fn("test", test_data_source, args.prompt_style)
         test_data = test_data.map(process_fn, with_indices=True)
         dataset_name = os.path.basename(test_data_source.lower())

@@ -1,7 +1,7 @@
 # Guideline
 
 The processed data will be saved in the `data/train` and `data/test` directories.
-The naming convention is `<domain>__<dataset_name>_<dataset_size>`, where `<domain>` is one of `math`, `codegen`, `logic`, `simulation`, `tableqa` for now.
+The naming convention is `<domain>__<dataset_name>_<dataset_size>`, where `<domain>` is one of `math`, `codegen`, `logic`, `simulation`, `table` for now.
 
 # Usage
 ## Math
@@ -9,10 +9,13 @@ The naming convention is `<domain>__<dataset_name>_<dataset_size>`, where `<doma
 ```bash
 python data_preprocess/math/bigmath_preview_filtered_mar21.py --train-sample-size <train_sample_size>
 ```
+Note: currently, test sets such as aime24, amc, and math500 are also included within the same data processing file as BigMath. This means you must run the BigMath data pipeline, even if you do not intend to use the BigMath training set, in order to access those test sets.
+
 **DeepScaler**
 ```bash
 python data_preprocess/math/deepscaler_preview.py --train-sample-size <train_sample_size>
 ```
+
 
 ## Code
 **leetcode2k**
@@ -62,7 +65,6 @@ python process_graph_dataset.py
 cd data_preprocess/logic
 uv pip install Faker==37.1.0
 python puzzle_gen.py --num_puzzles <num_puzzles> --output_dir data/puzzles_dataset --output_file puzzles_dataset.json  --test True
-cd ..
 python process_puzzles_dataset.py
 ```
 
