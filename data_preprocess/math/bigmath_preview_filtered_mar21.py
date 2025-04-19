@@ -166,7 +166,7 @@ if __name__ == "__main__":
         test_output_path = save_dataset(
             dataset=test_data,
             output_dir=test_output_dir,
-            filename_prefix=f"math__{dataset_name}",
+            filename_prefix=f"{args.domain}__{dataset_name}",
             sample_size=None
         )
         test_output_paths.append(test_output_path)
