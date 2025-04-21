@@ -107,7 +107,7 @@ check_{fn_name}()
                     )
                 for future in as_completed(futures):
                     exec_succ, output, stdin, stdout = future.result()
-                    pass_test = exec_succ and fuzzy_equal(output.strip(), stdout.strip())
+                    pass_test = exec_succ and fuzzy_equal(output.strip(), stdout.strip(), verbose=False)
                     if not pass_test:
                         print(f"Test code failed for example {idx}")
                         print(f"Input: {stdin}")
@@ -155,6 +155,7 @@ check_{fn_name}()
 if __name__ == '__main__':
     """Main script execution: parse args, load, process, and save datasets."""
     parser = argparse.ArgumentParser(description="Process and save PrimeIntellect datasets.")
+    parser.add_argument('--data-dir', type=str, default='data', help='Directory to save the processed datasets.')
     parser.add_argument('--domain', default="codegen",
                         help='Domain of the dataset.')
     parser.add_argument('--name', default="primeintellect",
@@ -179,17 +180,17 @@ if __name__ == '__main__':
 
     # Process the dataset
     process_fn = make_map_fn('train', data_source, args.prompt_style)
-    
+        
     dataset = dataset.map(function=process_fn, with_indices=True, num_proc=64)
 
     # Filter out examples where processing failed
-    dataset = dataset.filter(lambda x: x["data_source"] is not None)
+    dataset = dataset.filter(lambda x: x["data_source"] == data_source)
 
     # Length filter
     try:
         tokenizer = transformers.AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B")
         length_filter = LengthFilter(tokenizer=tokenizer, max_length=4096)
-        dataset = dataset.filter(lambda x: length_filter.check(x))
+        dataset = dataset.filter(lambda x: length_filter.check(x),)
     except Exception as e:
         print(f"Warning: Could not perform length filtering. Error: {e}")
         print("Proceeding without length filtering.")
@@ -201,7 +202,7 @@ if __name__ == '__main__':
     train_output_path = save_dataset(
         dataset=train_dataset,
         output_dir=train_output_dir,
-        filename_prefix=args.output_train_filename,
+        filename_prefix=data_source,
         sample_size=len(train_dataset)
     )
 

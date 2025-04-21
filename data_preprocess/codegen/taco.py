@@ -6,7 +6,6 @@ import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import transformers
-import datasets
 from datasets import load_dataset, Dataset
 
 from verl.utils.data_process.prompt import build_zero_style_prompt
@@ -18,6 +17,16 @@ from verl.utils.reward_score.coder1 import (
     _ERROR_MSG_PREFIX,
     fuzzy_equal
 )
+
+EMPTY_EXAMPLE = {
+    "data_source": None,
+    "prompt": None,
+    "raw_prompt": None,
+    "apply_chat_template": False,
+    "ability": None,
+    "reward_model": None,
+    "extra_info": None
+}
 
 
 def minimize_stdio(inputs, outputs, max_n_tests=8):
@@ -61,30 +70,20 @@ def get_datasets(cache_dir: str):
 def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
     def process_fn(example, idx):
         # Create a default "skip" response with all required fields
-        skip_response = {
-            "data_source": None,
-            "prompt": None,
-            "raw_prompt": None,  # Add this field to prevent KeyError
-            "ability": None,
-            "apply_chat_template": False,
-            "reward_model": None,
-            "extra_info": None
-        }
-        
         oracle = json.loads(example["input_output"])
         source = example["source"]
 
         # Skip poorly formatted examples
         if source in ["geeksforgeeks", "leetcode"]:
-            return skip_response
+            return EMPTY_EXAMPLE
 
         # Skip examples with too short descriptions
         if len("".join([c for c in example["question"] if c.isalnum()])) < 100:
-            return skip_response
+            return EMPTY_EXAMPLE
 
         # Skip examples with images
         if "image" in example["question"].lower() or "\n![" in example["question"]:
-            return skip_response
+            return EMPTY_EXAMPLE
 
         # Build prompt
         prompt_pieces = [
@@ -126,14 +125,14 @@ for i, o in zip(_inputs, _outputs):
                 test_code += f"    assert _deep_eq({fn_name}(*i), o[0])"
             else:
                 print(f"Unknown source: {source}")
-                return skip_response
+                return EMPTY_EXAMPLE
 
             # Verify the solution passes tests
             _check_test = example["solutions"][-1] + "\n" + test_code
             succ, err = code_exec(_check_test)
             if not succ:
                 print(f"Test code failed for {source}")
-                return skip_response
+                return EMPTY_EXAMPLE
             
             oracle_json = json.dumps({"functional": test_code})
             
@@ -142,7 +141,7 @@ for i, o in zip(_inputs, _outputs):
                 oracle["inputs"], oracle["outputs"]
             )
             if len(stdin_list) == 0:
-                return skip_response
+                return EMPTY_EXAMPLE
 
             # Verify the solution passes tests
             with ThreadPoolExecutor(max_workers=min(len(stdin_list), 8)) as executor:
@@ -161,12 +160,12 @@ for i, o in zip(_inputs, _outputs):
                     pass_test = exec_succ and fuzzy_equal(output.strip(), stdout.strip())
                     if not pass_test:
                         print(f"Test code failed for {source}")
-                        return skip_response
+                        return EMPTY_EXAMPLE
 
             oracle_json = json.dumps({"inputs": stdin_list, "outputs": stdout_list})
         else:
             print(f"Unknown ground truth format: {oracle}")
-            return skip_response
+            return EMPTY_EXAMPLE
 
         # Format the final prompt
         prompt = "\n".join(prompt_pieces)
@@ -232,37 +231,29 @@ if __name__ == '__main__':
     # Process the dataset
     process_fn = make_map_fn('train', data_source, args.prompt_style)
     
-    dataset = dataset.map(function=process_fn, with_indices=True)
+    dataset = dataset.map(function=process_fn, with_indices=True, num_proc=64)
 
     # Filter out examples where processing failed
-    dataset = dataset.filter(lambda x: x["data_source"] is not None)
+    dataset = dataset.filter(lambda x: x["data_source"] == data_source)
 
     # Length filter
     try:
         tokenizer = transformers.AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B")
         length_filter = LengthFilter(tokenizer=tokenizer, max_length=4096)
-        dataset = dataset.filter(lambda x: length_filter.check(x))
+        dataset = dataset.filter(lambda x: length_filter.check(x), num_proc=64)
     except Exception as e:
         print(f"Warning: Could not perform length filtering. Error: {e}")
         print("Proceeding without length filtering.")
 
     # Sample the dataset
-    dataset = sample_dataset(dataset, args.sample_size)
-    
-    
-    # Update split information in extra_info
-    def update_split(example, split_name):
-        example["extra_info"]["split"] = split_name
-        return example
-    
-    dataset = dataset.map(lambda x: update_split(x, "train"))
+    dataset = sample_dataset(dataset, args.train_sample_size)
 
     # Save the datasets
     train_output_path = save_dataset(
         dataset=dataset,
         output_dir=train_output_dir,
-        filename_prefix=args.output_filename,
-        sample_size=len(dataset)
+        filename_prefix=data_source,
+        sample_size=args.train_sample_size
     )
 
     print(f"\nDone! \n"

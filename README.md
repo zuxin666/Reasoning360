@@ -4,11 +4,13 @@ The repo is an attempt to replicate the large-scale RL training of [DeepSeek R1]
 
 It's initialized from [verl](https://github.com/volcengine/verl). verl's README is appended below.
 
-## Setup
+Note: When you change the core code inside verl, please add a note `# added by reasoning360` near the code change.
 
+## Setup
 
 ```bash
 conda create -n Reasoning360 python=3.12
+conda activate Reasoning360
 conda install -c nvidia/label/cuda-12.4.0 cuda-toolkit cuda-nvcc
 pip install uv # using uv to install packages is faster than pip
 uv pip install torch

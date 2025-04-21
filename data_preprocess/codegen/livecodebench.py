@@ -125,7 +125,6 @@ check_{function_name}()
                 "split": split,
                 "index": idx,
                 "reference": "",  # No solution data in LiveCodeBench
-                "prompt": prompt,
                 "dataset": "LiveCodeBench",
                 "function_name": function_name if "function_name" in locals() else None,
             },
@@ -175,19 +174,19 @@ if __name__ == '__main__':
     process_train_fn = make_map_fn('train', data_source, args.prompt_style)
     process_test_fn = make_map_fn('test', data_source, args.prompt_style)
     
-    train_dataset = train_dataset.map(function=process_train_fn, with_indices=True)
-    test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
+    train_dataset = train_dataset.map(function=process_train_fn, with_indices=True, num_proc=64)
+    test_dataset = test_dataset.map(function=process_test_fn, with_indices=True, num_proc=64)
 
     # Filter out examples where processing failed
-    train_dataset = train_dataset.filter(lambda x: x["data_source"] is not None)
-    test_dataset = test_dataset.filter(lambda x: x["data_source"] is not None)
+    train_dataset = train_dataset.filter(lambda x: x["data_source"] == data_source)
+    test_dataset = test_dataset.filter(lambda x: x["data_source"] == data_source)
 
     # Length filter
     try:
         tokenizer = transformers.AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B")
         length_filter = LengthFilter(tokenizer=tokenizer, max_length=4096)
-        train_dataset = train_dataset.filter(lambda x: length_filter.check(x))
-        test_dataset = test_dataset.filter(lambda x: length_filter.check(x))
+        train_dataset = train_dataset.filter(lambda x: length_filter.check(x), num_proc=64)
+        test_dataset = test_dataset.filter(lambda x: length_filter.check(x), num_proc=64)
     except Exception as e:
         print(f"Warning: Could not perform length filtering. Error: {e}")
         print("Proceeding without length filtering.")
