@@ -116,7 +116,7 @@ if __name__ == '__main__':
 
     set_seed(args.seed)
 
-    data_source = args.output_train_filename
+    data_source = f"{args.domain}_{args.name}"
     train_output_dir = os.path.join(args.data_dir, 'train')
     test_output_dir = os.path.join(args.data_dir, 'test')
     os.makedirs(train_output_dir, exist_ok=True)
@@ -134,8 +134,8 @@ if __name__ == '__main__':
     test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
 
     # Filter out examples where processing failed
-    train_dataset = train_dataset.filter(lambda x: x["data_source"] is not None)
-    test_dataset = test_dataset.filter(lambda x: x["data_source"] is not None)
+    train_dataset = train_dataset.filter(lambda x: x["data_source"] == data_source)
+    test_dataset = test_dataset.filter(lambda x: x["data_source"] == data_source)
 
     # Length filter
     try:
