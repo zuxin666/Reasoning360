@@ -155,6 +155,8 @@ class RLHFDataset(Dataset):
             try:
                 dataframe = pd.read_parquet(parquet_file)
             except Exception as e:
+                # if pandas fails (most likely due to nested columns), use polars
+                # NOTE: added by Reasoning360
                 import polars as pl
                 dataframe = pl.read_parquet(parquet_file).to_pandas()
             dataframes.append(dataframe)
