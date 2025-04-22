@@ -80,7 +80,7 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
                 "split": split,
                 "index": idx,
                 "reference": solution,
-                "prompt": prompt,
+                "original_prompt": prompt,
                 "dataset": "mbpp",
                 "task_id": str(example.get("task_id", "")),
             },

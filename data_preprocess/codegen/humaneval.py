@@ -75,7 +75,7 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
                 "split": split,
                 "index": idx,
                 "reference": solution,  # Include the canonical solution as reference
-                "prompt": prompt,
+                "original_prompt": prompt,
                 "dataset": "openai_humaneval",
                 "task_id": task_id,
             },

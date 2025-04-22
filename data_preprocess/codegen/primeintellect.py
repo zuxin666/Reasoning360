@@ -137,7 +137,7 @@ check_{fn_name}()
                 "split": split,
                 "index": idx,
                 "reference": solution,
-                "prompt": prompt,
+                "original_prompt": prompt,
                 "dataset": "PrimeIntellect",
                 "function_name": fn_name if tests[0]["type"] == "function_call" else None,
             },

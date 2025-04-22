@@ -86,7 +86,7 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
                 "split": split,
                 "index": idx,
                 "reference": solution,
-                "prompt": prompt,
+                "original_prompt": prompt,
                 "prefix": prefix,
                 "dataset": "LeetCodeDataset",
                 "question_title": example["meta"]["question_title"],

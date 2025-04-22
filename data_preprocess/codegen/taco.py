@@ -185,7 +185,7 @@ for i, o in zip(_inputs, _outputs):
                 "split": split,
                 "index": idx,
                 "reference": example["solutions"][0] if example["solutions"] else "",
-                "prompt": prompt,
+                "original_prompt": prompt,
                 "dataset": "likaixin/TACO-verified",
                 "source": source,
             },
