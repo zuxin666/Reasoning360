@@ -14,45 +14,26 @@
 # from . import gsm8k, math, prime_math, prime_code
 
 
-def _default_compute_score(data_source, solution_str, ground_truth, reward_metric=None, extra_info=None):
+def _default_compute_score(data_source, solution_str, ground_truth, extra_info=None):
+    
+    reward_metric = extra_info.get("reward_metric", None)
+    
     if data_source.startswith("math"):
-        if reward_metric == "prime_math" or reward_metric is None:
+        
+        if reward_metric == "dapo" or reward_metric is None:
+            from . import naive_dapo
+            res = naive_dapo.compute_score(solution_str, ground_truth, extra_info=extra_info)
+    
+        elif reward_metric == "prime_math":
             from . import prime_math
-
             res = prime_math.compute_score(solution_str, ground_truth)[0]
 
         elif reward_metric == "math_llm_judge":
             from . import math_llm_judge
-
             res = math_llm_judge.compute_score(
                 solution_str, ground_truth, extra_info=extra_info
             )
 
-        elif reward_metric == "math_verify":
-            from .orz.math_utils_sync import is_equal, solution2answer
-
-            res = is_equal(
-                solution2answer(solution_str),
-                solution2answer(str(ground_truth)),
-                math_mode="math_verify",
-            )
-        elif reward_metric == "boxed_math_verify":
-            from .orz.math_utils_sync import is_equal, solution2answer
-
-            def add_boxed(s):
-                s = str(s)
-                if "\\boxed" not in s:
-                    s = f"\\boxed{{{s}}}"
-                return s
-
-            res = is_equal(
-                add_boxed(solution2answer(solution_str)),
-                add_boxed(solution2answer(str(ground_truth))),
-                math_mode="math_verify",
-            )
-        elif reward_metric == "dapo":
-            from . import naive_dapo
-            res = naive_dapo.compute_score(solution_str, ground_truth, extra_info=extra_info)
     elif data_source.startswith('codegen'):
         from . import coder1
         res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)

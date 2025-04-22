@@ -55,7 +55,7 @@ def get_datasets(cache_dir: str):
     return train_dataset, test_datasets
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
+def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style", reward_metric: str=None) -> callable:
     def process_fn(example: Dict[str, Any], idx: int) -> Dict[str, Any]:
         question = example.pop("problem")
         answer = example.pop("answer")
@@ -69,7 +69,11 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
                 "ability": "math",
                 "apply_chat_template": False,
                 "reward_model": {"style": "rule", "ground_truth": answer},
-                "extra_info": {"split": split, "index": idx},
+                "extra_info": {"split": split,
+                               "index": idx,
+                               "reward_metric": reward_metric,
+                               "question": question,
+                               },
             }
         else:
             raise ValueError(f"Invalid prompt style: {prompt_style}")
@@ -110,6 +114,24 @@ if __name__ == "__main__":
         help="Number of samples to use from the training dataset. If None, use all samples.",
     )
     parser.add_argument(
+        "--train-reward-metric",
+        type=str,
+        default=None,
+        help="Reward metric to use for training. If None, use all samples.",
+    )
+    parser.add_argument(
+        "--test-reward-metric",
+        type=str,
+        default=None,
+        help="Reward metric to use for testing. If None, use all samples.",
+    )
+    parser.add_argument(
+        "--suffix",
+        type=str,
+        default=None,
+        help="Suffix to add to the dataset name. If None, use all samples.",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -131,7 +153,7 @@ if __name__ == "__main__":
     data_source = f"{args.domain}__{args.name}"
 
     # Process train dataset
-    process_train_fn = make_map_fn("train", data_source, args.prompt_style)
+    process_train_fn = make_map_fn("train", data_source, args.prompt_style, args.train_reward_metric)
     train_data = train_dataset.map(function=process_train_fn, with_indices=True)
     # Sample
     train_data = sample_dataset(train_data, args.train_sample_size)
@@ -141,7 +163,7 @@ if __name__ == "__main__":
     train_output_path = save_dataset(
         dataset=train_data,
         output_dir=train_output_dir,
-        filename_prefix=data_source,
+        filename_prefix=data_source + args.suffix if args.suffix else data_source,
         sample_size=args.train_sample_size
     )
 
@@ -156,7 +178,7 @@ if __name__ == "__main__":
         "math",
     ]
     for test_data_source, test_data in zip(test_data_sources, test_datasets):
-        process_fn = make_map_fn("test", test_data_source, args.prompt_style)
+        process_fn = make_map_fn("test", test_data_source, args.prompt_style, args.test_reward_metric)
         test_data = test_data.map(process_fn, with_indices=True)
         dataset_name = os.path.basename(test_data_source.lower())
         test_output_path = save_dataset(
@@ -170,3 +192,8 @@ if __name__ == "__main__":
     print(f"Done! \n"
           f"Train data saved to {train_output_path}\n"
           f"Test data saved to {test_output_paths}")
+
+    # python bigmath_preview_filtered_mar21.py
+    
+    # with llm judge
+    # python bigmath_preview_filtered_mar21.py --train-reward-metric math_llm_judge --suffix _llm_judge

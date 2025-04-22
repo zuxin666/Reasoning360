@@ -170,8 +170,6 @@ class TaskRunner:
                                        reward_fn_key=config.data.reward_fn_key,
                                        max_resp_len=config.data.max_response_length,
                                        overlong_buffer_cfg=config.reward_model.overlong_buffer,
-                                       # NOTE: added by Reasoning360 # TODO remove this hard-coding...
-                                       reward_metric=config.reward_model.get("reward_metric", None),
                                        )
 
         # Note that we always use function-based RM for validation
@@ -181,8 +179,6 @@ class TaskRunner:
                                            reward_fn_key=config.data.reward_fn_key,
                                            max_resp_len=config.data.max_response_length,
                                            overlong_buffer_cfg=config.reward_model.overlong_buffer,
-                                           # NOTE: added by Reasoning360 # TODO remove this hard-coding...
-                                           reward_metric=config.reward_model.get("reward_metric", None),
                                        )
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 

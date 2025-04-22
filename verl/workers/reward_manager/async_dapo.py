@@ -22,7 +22,7 @@ from verl.utils.reward_score import _default_compute_score
 import torch
 
 
-async def single_compute_score(compute_score_fn, data_source, solution_str, ground_truth, extra_info, reward_metric, executor, timeout=300.):
+async def single_compute_score(compute_score_fn, data_source, solution_str, ground_truth, extra_info, executor, timeout=300.):
     loop = asyncio.get_running_loop()
     try:
         tasks = [
@@ -30,7 +30,7 @@ async def single_compute_score(compute_score_fn, data_source, solution_str, grou
                 loop.run_in_executor(
                     executor,
                     partial(compute_score_fn, data_source=data_source, solution_str=solution_str, 
-                            ground_truth=ground_truth, extra_info=extra_info, reward_metric=reward_metric)
+                            ground_truth=ground_truth, extra_info=extra_info)
                 ),
                 timeout=timeout,
             )
@@ -45,13 +45,13 @@ async def single_compute_score(compute_score_fn, data_source, solution_str, grou
 
 
 async def parallel_compute_score_async(compute_score_fn, data_sources, solutions, ground_truths, 
-                                      extra_infos, reward_metric, num_processes=64):
+                                      extra_infos, num_processes=64):
     results = []
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         # Create tasks for all items
         tasks_async = [
             single_compute_score(compute_score_fn, data_source, solution, ground_truth, 
-                                extra_info, reward_metric, executor, timeout=300.)
+                                extra_info, executor, timeout=300.)
             for data_source, solution, ground_truth, extra_info in 
             zip(data_sources, solutions, ground_truths, extra_infos)
         ]
@@ -88,7 +88,6 @@ class AsyncDAPORewardManager:
         self.reward_fn_key = reward_fn_key
         self.overlong_buffer_cfg = overlong_buffer_cfg
         self.max_resp_len = max_resp_len
-        self.reward_metric = kwargs.get("reward_metric", None)
 
         if self.overlong_buffer_cfg is not None:
             assert self.max_resp_len is not None, f"max_resp_len must be provided if {overlong_buffer_cfg=}, but got None"
@@ -189,7 +188,6 @@ class AsyncDAPORewardManager:
                     solutions,
                     ground_truths,
                     extra_infos,
-                    self.reward_metric,
                     num_processes=64
                 )
             )
