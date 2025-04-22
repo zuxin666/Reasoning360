@@ -25,16 +25,6 @@ from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 from verl.utils.data_process.prompt import build_zero_style_prompt
 from verl.utils.reward_score.math import remove_boxed, last_boxed_only_string
 
-IS_TRAINSET = True
-IS_TEST = False
-# Instruction to append to math problems
-InstructionFollow = "Please output the final answer within \\boxed{}."
-
-def extract_solution(solution_str: str) -> str:
-    """Extracts the final answer assuming it's in the last \\boxed{}."""
-    return remove_boxed(last_boxed_only_string(solution_str))
-
-
 def get_datasets(cache_dir: str):
     """
     Load the math datasets from Hugging Face Hub.
@@ -55,7 +45,7 @@ def get_datasets(cache_dir: str):
     return train_dataset, None
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
+def make_map_fn(split: str, data_source: str) -> callable:
     """
     Create a mapping function for processing dataset examples.
     
@@ -73,24 +63,18 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
         if isinstance(answer, list):
             answer = answer[0]  # minerva, olympiad_bench
             
-        if prompt_style == "zero_style":
-            prompt = build_zero_style_prompt(prompt=question, extra_instruction=InstructionFollow)
-            data = {
-                "data_source": data_source,
-                "prompt": [],
-                "raw_prompt": prompt,
-                "ability": "math",
-                "apply_chat_template": False,
-                "reward_model": {"style": "rule", "ground_truth": answer},
-                "extra_info": {"split": split, "index": idx},
-            }
-        else:
-            raise ValueError(f"Unknown prompt style: {prompt_style}")
-        
-        if idx == 0 or idx == 1:
-            print(f"data_source: {data_source}, split: {split}, idx: {idx}")
-            print("\n" + "=" * 10 + f"{data_source} {split} {idx}" + "=" * 10)
-            print(data)
+        data = {
+            "data_source": data_source,
+            "prompt": [
+                {"role": "user", "content": question + " Please output the final answer within \\boxed{}."},
+            ],
+            "ability": "math",
+            "apply_chat_template": True,
+            "reward_model": {"style": "rule", "ground_truth": answer},
+            "extra_info": {"split": split, "index": idx},
+        }
+        print("\n" + "=" * 10 + f"{data_source} {split} {idx}" + "=" * 10)
+        print(data)
         return data
 
     return process_fn
@@ -128,12 +112,6 @@ if __name__ == "__main__":
         default=42,
         help="Random seed for reproducibility when sampling data.",
     )
-    parser.add_argument(
-        "--prompt-style",
-        type=str,
-        default="zero_style",
-        help="Prompt style",
-    )
     args = parser.parse_args()
     set_seed(args.seed)
     data_source = f"{args.domain}__{args.name}"
@@ -144,7 +122,7 @@ if __name__ == "__main__":
     train_dataset, test_datasets = get_datasets(cache_dir)
 
     # Process train dataset
-    process_train_fn = make_map_fn("train", data_source, args.prompt_style)
+    process_train_fn = make_map_fn("train", data_source)
     train_data = train_dataset.map(function=process_train_fn, with_indices=True)
     
     # Sample

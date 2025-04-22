@@ -14,7 +14,7 @@ from verl.utils.data_process.prompt import build_zero_style_prompt
 
 
 InstructionFollow = "Please output the final answer within \\boxed{}."
-RawPrompt = """You are given one or more tables. Use the information in the tables to answer the following question.
+PromptTemplate = """You are given one or more tables. Use the information in the tables to answer the following question.
 {{tables}}
 The question is:
 {{question}}
@@ -171,7 +171,7 @@ def html_table_to_markdown(table):
     return '\n'.join(markdown_rows)
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str = "zero_style"):
+def make_map_fn(split: str, data_source: str):
     def process_fn(example, idx):
         try:
             tables = example.pop("tables")
@@ -180,11 +180,7 @@ def make_map_fn(split: str, data_source: str, prompt_style: str = "zero_style"):
             answer = example["qa"]["answer"]
             table_string = "\n".join([html_table_to_markdown(table) for table in tables])
             
-            if prompt_style == "zero_style":
-                prompt = build_zero_style_prompt(prompt=RawPrompt, extra_instruction=InstructionFollow)
-                raw_prompt = prompt.replace("{{tables}}", table_string).replace("{{question}}", question)
-            else:
-                raise ValueError(f"Invalid prompt style: {prompt_style}")
+            prompt = PromptTemplate.replace("{{tables}}", table_string).replace("{{question}}", question) + InstructionFollow
                 
         except Exception as e:
             print(e)
@@ -193,14 +189,19 @@ def make_map_fn(split: str, data_source: str, prompt_style: str = "zero_style"):
             
         data = {
             "data_source": data_source,
-            "prompt": [],
-            "raw_prompt": raw_prompt,
+            "prompt": [
+                {
+                    "role": "user", 
+                    "content": prompt
+                }
+            ],
             "ability": "table",
-            "apply_chat_template": False,
+            "apply_chat_template": True,
             "reward_model": {"style": "rule", "ground_truth": answer},
-            "extra_info": {"split": split, 
-                           "index": idx,
-                          },
+            "extra_info": {
+                "split": split, 
+                "index": idx,
+            },
         }
         if idx == 0 or idx == 1:
             print("\n" + "=" * 10 + f"{data_source} {split} {idx}" + "=" * 10)
@@ -220,8 +221,6 @@ if __name__ == "__main__":
                         help='Number of samples to use from training dataset. If None, use all samples.')
     parser.add_argument('--test-sample-size', type=int, default=None,
                         help='Number of samples to use from test dataset. If None, use all samples.')
-    parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
-                        help='Prompt style to use: zero_style for think-then-answer format.')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     args = parser.parse_args()
@@ -237,8 +236,8 @@ if __name__ == "__main__":
     train_dataset, test_dataset = get_datasets(cache_dir, download=True)
 
     # Process datasets
-    process_train_fn = make_map_fn('train', data_source, args.prompt_style)
-    process_test_fn = make_map_fn('test', data_source, args.prompt_style)
+    process_train_fn = make_map_fn('train', data_source)
+    process_test_fn = make_map_fn('test', data_source)
     train_dataset = train_dataset.map(function=process_train_fn, with_indices=True)
     test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
     

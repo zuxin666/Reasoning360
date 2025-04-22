@@ -14,13 +14,6 @@ from verl.utils.reward_score.math import remove_boxed, last_boxed_only_string
 from verl.utils.data_process.prompt import build_zero_style_prompt
 from verl.utils.data_process.utils import add_suffix, set_seed, sample_dataset, save_dataset
 
-InstructionFollow = "Please output the final answer within \\boxed{}."
-
-def extract_solution(solution_str: str) -> str:
-    """Extracts the final answer assuming it's in the last \\boxed{}."""
-    return remove_boxed(last_boxed_only_string(solution_str))
-
-
 def get_datasets(cache_dir: str):
     """
     Load the math datasets from Hugging Face Hub.
@@ -59,24 +52,21 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style", re
     def process_fn(example: Dict[str, Any], idx: int) -> Dict[str, Any]:
         question = example.pop("problem")
         answer = example.pop("answer")
-        
-        if prompt_style == "zero_style":
-            prompt = build_zero_style_prompt(prompt=question, extra_instruction=InstructionFollow)
-            data = {
-                "data_source": data_source,
-                "prompt": [],  # no messages-like prompt. instead, use from-scratch raw_prompt
-                "raw_prompt": prompt,
-                "ability": "math",
-                "apply_chat_template": False,
-                "reward_model": {"style": "rule", "ground_truth": answer},
-                "extra_info": {"split": split,
-                               "index": idx,
-                               "reward_metric": reward_metric,
-                               "question": question,
-                               },
-            }
-        else:
-            raise ValueError(f"Invalid prompt style: {prompt_style}")
+        data = {
+            "data_source": data_source,
+            "prompt": [
+                {"role": "user", "content": question + " Please output the final answer within \\boxed{}."},
+            ],
+            "ability": "math",
+            "apply_chat_template": True,
+            "reward_model": {"style": "rule", "ground_truth": answer},
+            "extra_info": {
+                "split": split,
+                "index": idx,
+                "reward_metric": reward_metric,
+                "question": question,
+            },
+        }
 
         if idx == 0 or idx == 1:
             print(f"data_source: {data_source}, split: {split}, idx: {idx}")
@@ -117,32 +107,25 @@ if __name__ == "__main__":
         "--train-reward-metric",
         type=str,
         default=None,
-        help="Reward metric to use for training. If None, use all samples.",
+        help="Reward metric to use for training. If None, use the naive_dapo.compute_score.",
     )
     parser.add_argument(
         "--test-reward-metric",
         type=str,
         default=None,
-        help="Reward metric to use for testing. If None, use all samples.",
+        help="Reward metric to use for testing. If None, use the naive_dapo.compute_score.",
     )
     parser.add_argument(
         "--suffix",
         type=str,
         default=None,
-        help="Suffix to add to the dataset name. If None, use all samples.",
+        help="Suffix to add to the dataset name.",
     )
     parser.add_argument(
         "--seed",
         type=int,
         default=42,
         help="Random seed for reproducibility when sampling data.",
-    )
-    parser.add_argument(
-        "--prompt-style",
-        type=str,
-        choices=["zero_style", "instruction"],
-        default="zero_style",
-        help="Prompt style to use: 'zero_style' for think-then-answer format or 'instruction' for direct instruction format.",
     )
     args = parser.parse_args()
     set_seed(args.seed)
