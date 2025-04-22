@@ -33,9 +33,6 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
         problem_desc = example["problem"]
         starter_code = example["starter_code"]
         
-        # Create the prompt with the starter code 
-        prompt = f"{problem_desc}\n\nComplete the implementation using the provided starter code:\n```python\n{starter_code}\n```\n\nYour solution should implement the method(s) in the Solution class."
-        
         # Process tests
         try:
             tests = json.loads(example["tests"])
@@ -65,6 +62,20 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
                         "extra_info": None
                     }
                 
+                # create the prompt with the starter code 
+                # prompt adopted from livecodebench official implementation
+                # https://github.com/LiveCodeBench/LiveCodeBench/blob/main/lcb_runner/prompts/code_generation.py
+                prompt = f"""You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests.
+
+Below is the question:
+
+{problem_desc}
+
+You will use the following starter code to write the solution to the problem and enclose your code within delimiters.
+```python
+{starter_code}
+```"""
+                
                 # Function call tests
                 test_code = f"""\
 def check_{function_name}():
@@ -87,6 +98,17 @@ check_{function_name}()
                 oracle = json.dumps({"functional": test_code})
                 
             elif tests[0]["testtype"] == "stdin":
+                # create the prompt, and there will be no starter code
+                # prompt adopted from livecodebench official implementation
+                # https://github.com/LiveCodeBench/LiveCodeBench/blob/main/lcb_runner/prompts/code_generation.py
+                prompt = f"""You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests.
+
+Below is the question:
+
+{problem_desc}
+
+Read the inputs from stdin solve the problem and write the answer to stdout (do not directly test on the sample inputs). Enclose your code within delimiters. Ensure that when the python program runs, it reads the inputs, runs the algorithm and writes output to STDOUT."""
+                
                 # STDIN/STDOUT tests
                 stdin_list = []
                 stdout_list = []
@@ -127,6 +149,7 @@ check_{function_name}()
                 "reference": "",  # No solution data in LiveCodeBench
                 "dataset": "LiveCodeBench",
                 "function_name": function_name if "function_name" in locals() else None,
+                "original_prompt": prompt,
             },
         }
         
