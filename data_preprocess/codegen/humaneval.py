@@ -110,7 +110,8 @@ if __name__ == '__main__':
     os.makedirs(test_output_dir, exist_ok=True)
     
     # Load the dataset
-    _, dataset = get_datasets(cache_dir=args.data_dir)
+    cache_dir = datasets.config.HF_DATASETS_CACHE
+    _, dataset = get_datasets(cache_dir=cache_dir)
 
     # Process the dataset
     process_fn = make_map_fn('test', data_source)

@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import datasets
 import transformers
 from datasets import load_dataset, Dataset
 
@@ -221,7 +222,8 @@ if __name__ == '__main__':
     os.makedirs(test_output_dir, exist_ok=True)
     
     # Load the dataset
-    dataset, _ = get_datasets(args.data_dir)
+    cache_dir = datasets.config.HF_DATASETS_CACHE
+    dataset, _ = get_datasets(cache_dir=cache_dir)
 
     # Process the dataset
     process_fn = make_map_fn('train', data_source)
