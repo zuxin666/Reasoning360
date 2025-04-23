@@ -37,6 +37,9 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     elif data_source.startswith('codegen'):
         from . import coder1
         res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)
+    elif data_source.startswith("simulation__arcagi"):
+        from . import arcagi
+        res = arcagi.compute_score(solution_str, ground_truth)
     elif data_source.startswith("simulation"):
         from . import codeio
         res = codeio.compute_score(solution_str, ground_truth)
