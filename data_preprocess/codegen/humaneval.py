@@ -7,7 +7,6 @@ import transformers
 import datasets
 from datasets import load_dataset, Dataset
 
-from verl.utils.data_process.prompt import build_zero_style_prompt
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 from verl.utils.data_process.filter import LengthFilter
 from verl.utils.reward_score.coder1 import code_exec
@@ -26,13 +25,12 @@ def get_datasets(cache_dir: str):
         return None, None
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
+def make_map_fn(split: str, data_source: str) -> callable:
     def process_fn(example, idx):
         # Create a default "skip" response with all required fields
         skip_response = {
             "data_source": None,
             "prompt": None,
-            "raw_prompt": None,
             "ability": None,
             "reward_model": None,
             "extra_info": None
@@ -57,14 +55,14 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
             print(f"Error in canonical solution for task {task_id}: {err}")
             return skip_response
 
-        # Format the prompt according to the specified style
-        raw_prompt = build_zero_style_prompt(prompt=prompt)
+
         data = {
             "data_source": data_source,
-            "prompt": [],
-            "raw_prompt": raw_prompt,
+            "prompt": [
+                {"role": "user", "content": prompt}
+            ],
             "ability": "codegen",
-            "apply_chat_template": False,
+            "apply_chat_template": True,
             "reward_model": {
                 "style": "rule",
                 "ground_truth": json.dumps({
@@ -101,8 +99,6 @@ if __name__ == '__main__':
                         help='Name of the dataset.')
     parser.add_argument('--sample-size', type=int, default=None,
                         help='Number of samples to use from dataset. If None, use all samples.')
-    parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
-                        help='Prompt style to use (currently only zero_style supported).')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     args = parser.parse_args()
@@ -117,7 +113,7 @@ if __name__ == '__main__':
     _, dataset = get_datasets(cache_dir=args.data_dir)
 
     # Process the dataset
-    process_fn = make_map_fn('test', data_source, args.prompt_style)
+    process_fn = make_map_fn('test', data_source)
     
     dataset = dataset.map(function=process_fn, with_indices=True)
 

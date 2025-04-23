@@ -8,20 +8,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import transformers
 from datasets import load_dataset, Dataset
 
-from verl.utils.data_process.prompt import build_zero_style_prompt
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 from verl.utils.data_process.filter import LengthFilter
 from verl.utils.reward_score.coder1 import (
     code_exec,
     remote_check_stdio,
-    _ERROR_MSG_PREFIX,
     fuzzy_equal
 )
 
 EMPTY_EXAMPLE = {
     "data_source": None,
     "prompt": None,
-    "raw_prompt": None,
     "apply_chat_template": False,
     "ability": None,
     "reward_model": None,
@@ -67,7 +64,7 @@ def get_datasets(cache_dir: str):
         return Dataset.from_list([]), None
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
+def make_map_fn(split: str, data_source: str) -> callable:
     def process_fn(example, idx):
         # Create a default "skip" response with all required fields
         oracle = json.loads(example["input_output"])
@@ -169,14 +166,14 @@ for i, o in zip(_inputs, _outputs):
 
         # Format the final prompt
         prompt = "\n".join(prompt_pieces)
-        raw_prompt = build_zero_style_prompt(prompt=prompt)
         
         data = {
             "data_source": data_source,
-            "prompt": [],
-            "raw_prompt": raw_prompt,
+            "prompt": [
+                {"role": "user", "content": prompt}
+            ],
             "ability": "codegen",
-            "apply_chat_template": False,
+            "apply_chat_template": True,
             "reward_model": {
                 "style": "rule",
                 "ground_truth": oracle_json,
@@ -211,8 +208,6 @@ if __name__ == '__main__':
                         help='Domain of the dataset.')
     parser.add_argument('--train-sample-size', type=int, default=None,
                         help='Number of samples to use for training. If None, use all samples.')
-    parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
-                        help='Prompt style to use (currently only zero_style supported).')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     args = parser.parse_args()
@@ -229,7 +224,7 @@ if __name__ == '__main__':
     dataset, _ = get_datasets(args.data_dir)
 
     # Process the dataset
-    process_fn = make_map_fn('train', data_source, args.prompt_style)
+    process_fn = make_map_fn('train', data_source)
     
     dataset = dataset.map(function=process_fn, with_indices=True, num_proc=64)
 

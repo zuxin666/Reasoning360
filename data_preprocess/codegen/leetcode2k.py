@@ -7,10 +7,18 @@ import transformers
 import datasets
 from datasets import load_dataset, Dataset
 
-from verl.utils.data_process.prompt import build_zero_style_prompt
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 from verl.utils.data_process.filter import LengthFilter
 from verl.utils.reward_score.coder1 import code_exec
+
+EMPTY_EXAMPLE = {
+    "data_source": None,
+    "prompt": None,
+    "apply_chat_template": False,
+    "ability": None,
+    "reward_model": None,
+    "extra_info": None
+}
 
 
 def get_datasets(cache_dir: str):
@@ -33,7 +41,7 @@ def get_datasets(cache_dir: str):
         return None, None
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
+def make_map_fn(split: str, data_source: str) -> callable:
     def process_fn(example, idx):
         prefix = example["prompt"]
         
@@ -56,26 +64,15 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
         succ, err = code_exec(full_code, timeout=20)
         if not succ:
             print(f"Test code failed for example {idx}: {example['meta']['question_title']}")
-            return {
-                "data_source": None,
-                "prompt": None,
-                "raw_prompt": None,
-                "ability": None,
-                "reward_model": None,
-                "extra_info": None
-            }
-
-        # Format the prompt according to the specified style
-        # The `raw_prompt` variable in the code snippet provided is being used to store the cleaned up
-        # version of the prompt extracted from the dataset example.
-        raw_prompt = build_zero_style_prompt(prompt=prompt)
+            return EMPTY_EXAMPLE
         
         data = {
             "data_source": data_source,
-            "prompt": [],
-            "raw_prompt": raw_prompt,
+            "prompt": [
+                {"role": "user", "content": prompt}
+            ],
             "ability": "codegen",
-            "apply_chat_template": False,
+            "apply_chat_template": True,
             "reward_model": {
                 "style": "rule",
                 "ground_truth": json.dumps({
@@ -116,8 +113,6 @@ if __name__ == '__main__':
                         help='Number of samples to use from training dataset. If None, use all samples.')
     parser.add_argument('--test-sample-size', type=int, default=None,
                         help='Number of samples to use from test dataset. If None, use all samples.')
-    parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
-                        help='Prompt style to use (currently only zero_style supported).')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     args = parser.parse_args()
@@ -135,8 +130,8 @@ if __name__ == '__main__':
     train_dataset, test_dataset = get_datasets(cache_dir=cache_dir)
 
     # Process the dataset
-    process_train_fn = make_map_fn('train', data_source, args.prompt_style)
-    process_test_fn = make_map_fn('test', data_source, args.prompt_style)
+    process_train_fn = make_map_fn('train', data_source)
+    process_test_fn = make_map_fn('test', data_source)
     
     train_dataset = train_dataset.map(function=process_train_fn, with_indices=True, num_proc=64)
     test_dataset = test_dataset.map(function=process_test_fn, with_indices=True, num_proc=64)
