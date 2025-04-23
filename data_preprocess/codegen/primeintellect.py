@@ -50,10 +50,31 @@ def make_map_fn(split: str, data_source: str, verbose: bool) -> callable:
         
         # Process tests
         tests = json.loads(example["tests"])
+        
+        # Now let's do some filtering
+        # 1. Remove examples with no tests
         if not tests:
             print(f"No tests found for example {idx}")
             return EMPTY_EXAMPLE
-                
+    
+        # 2. Remove examples with "image" in prompt, image typically will be in the following format:
+        # <image> or [image]
+        if "<image>" in prompt.lower() or "[image]" in prompt.lower():
+            print(f"Image found in prompt for example {idx}")
+            return EMPTY_EXAMPLE
+        
+        # 3. Remove examples with no problem description
+        # Check if prompt starts with unwanted patterns after removing common prefix
+        check_prompt = prompt
+        if "Solve the following coding problem using the programming language python:" in check_prompt:
+            check_prompt = check_prompt.split("Solve the following coding problem using the programming language python:")[1].lstrip()
+            
+        if (check_prompt.lower().startswith("example") or 
+            check_prompt.lower().startswith("input") or 
+            check_prompt.lower().startswith("-----input-----")):
+            print(f"Example starts with unwanted pattern for example {idx}")
+            return EMPTY_EXAMPLE
+        
         # Handle different test types
         if tests[0]["type"] == "function_call":
             # Function call tests
