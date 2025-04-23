@@ -325,13 +325,13 @@ def exponential_range(base, start, end):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Generate graph search problems.")
-	parser.add_argument("--output_dir", type=str, default="../data/graph_dataset", help="output directory for generated problems")
+	parser.add_argument("--output_dir", type=str, default="../../../data/raw", help="output directory for generated problems")
 	parser.add_argument("--output_file", type=str, default="graph_search.json", help="output file for generated problems")
 	parser.add_argument("--num_samples", type=int, default=10000, help="number of samples to generate")
 	args = parser.parse_args()
 	# Set the output directory and file
-	base_dir = os.path.dirname(os.path.abspath(__file__))
-	output_dir = os.path.join(base_dir, args.output_dir)
+	# base_dir = os.path.dirname(os.path.abspath(__file__))
+	output_dir = args.output_dir
 	# Create the output directory if it doesn't exist
 	if not os.path.exists(output_dir):
 		os.makedirs(output_dir)

@@ -62,11 +62,11 @@ def make_map_fn(split, data_source):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json_path', default='data/zebra_puzzles/zebra_puzzles.json', help='Path to json file')
-    parser.add_argument('--output_dir', default='../../data', help='Directory to save processed data')
+    parser.add_argument('--json_path', default='data/raw/zebra_puzzles.json', help='Path to json file')
+    parser.add_argument('--output_dir', default='data', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
-    parser.add_argument('--train_size', type=float, default=0.2, help='Proportion of data for train set')
-    parser.add_argument('--test_size', type=float, default=0.02, help='Proportion of data for test set')
+    parser.add_argument('--train_size', type=float, default=0.8, help='Proportion of data for train set')
+    parser.add_argument('--test_size', type=float, default=0.2, help='Proportion of data for test set')
     parser.add_argument('--data_source', default='zebra_puzzle_dataset', help='Name of data source')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')

@@ -75,11 +75,11 @@ def make_map_fn(split: str, data_source: str) -> callable:
 if __name__ == '__main__':
     """Main script execution: parse args, load, process, and save datasets."""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json_path', default='data/graph_dataset/graph_search.json', help='Path to json file')
-    parser.add_argument('--output_dir', default='../../../data', help='Directory to save processed data')
+    parser.add_argument('--json_path', default='data/raw/graph_search.json', help='Path to json file')
+    parser.add_argument('--output_dir', default='data', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
-    parser.add_argument('--train_size', type=float, default=0.2, help='Proportion of data for train set')
-    parser.add_argument('--test_size', type=float, default=0.02, help='Proportion of data for test set')
+    parser.add_argument('--train_size', type=float, default=0.8, help='Proportion of data for train set')
+    parser.add_argument('--test_size', type=float, default=0.2, help='Proportion of data for test set')
     parser.add_argument('--data_source', default='graph_logical_dataset', help='Name of data source')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility when splitting data')
     parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')

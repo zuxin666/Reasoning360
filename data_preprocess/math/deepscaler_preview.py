@@ -73,8 +73,10 @@ def make_map_fn(split: str, data_source: str) -> callable:
             "reward_model": {"style": "rule", "ground_truth": answer},
             "extra_info": {"split": split, "index": idx},
         }
-        print("\n" + "=" * 10 + f"{data_source} {split} {idx}" + "=" * 10)
-        print(data)
+        if idx == 0 or idx == 1:
+            print(f"data_source: {data_source}, split: {split}, idx: {idx}")
+            print("\n" + "=" * 10 + f"{data_source} {split} {idx}" + "=" * 10)
+            print(data)
         return data
 
     return process_fn

@@ -136,7 +136,7 @@ if __name__ == "__main__":
     data_source = f"{args.domain}__{args.name}"
 
     # Process train dataset
-    process_train_fn = make_map_fn("train", data_source, args.prompt_style, args.train_reward_metric)
+    process_train_fn = make_map_fn("train", data_source, args.train_reward_metric)
     train_data = train_dataset.map(function=process_train_fn, with_indices=True)
     # Sample
     train_data = sample_dataset(train_data, args.train_sample_size)
@@ -161,7 +161,7 @@ if __name__ == "__main__":
         "math",
     ]
     for test_data_source, test_data in zip(test_data_sources, test_datasets):
-        process_fn = make_map_fn("test", test_data_source, args.prompt_style, args.test_reward_metric)
+        process_fn = make_map_fn("test", test_data_source, args.test_reward_metric)
         test_data = test_data.map(process_fn, with_indices=True)
         dataset_name = os.path.basename(test_data_source.lower())
         test_output_path = save_dataset(

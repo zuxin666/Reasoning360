@@ -80,14 +80,13 @@ def get_datasets(cache_dir, download=False):
     return Dataset.from_list(train_dataset), Dataset.from_list(test_dataset)
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
+def make_map_fn(split: str, data_source: str) -> callable:
     """
     Creates a mapping function to process individual examples of the dataset.
 
     Args:
         split: The dataset split ('train' or 'test').
         data_source: Identifier for the data source.
-        prompt_style: The style of prompt to use (e.g., 'zero_style').
 
     Returns:
         A callable function that takes an example and index, and returns the processed data.
@@ -155,8 +154,8 @@ if __name__ == '__main__':
     train_dataset, test_dataset = get_datasets(cache_dir, download=True)
 
     # Process the dataset
-    process_train_fn = make_map_fn('train', data_source, args.prompt_style)
-    process_test_fn = make_map_fn('test', data_source, args.prompt_style)
+    process_train_fn = make_map_fn('train', data_source)
+    process_test_fn = make_map_fn('test', data_source)
     train_dataset = train_dataset.map(function=process_train_fn, with_indices=True)
     test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
 

@@ -46,26 +46,25 @@ python data_preprocess/codegen/livecodebench.py
 ## Logic
 **zebra_puzzle_dataset**
 ```bash
-cd data_preprocess/logic/zebra_puzzle_gen
-python puzzle_generator.py --num_puzzles <num_puzzles> --num_processes <num_processes>
+python data_preprocess/logic/zebrapuzzle_gen/puzzle_generator.py --output_dir data/raw --num_puzzles <num_puzzles> --num_processes <num_processes>
 cd ..
-python process_zebrapuzzle_dataset.py
+python data_preprocess/logic/process_zebrapuzzle_dataset.py
 ```
 
 **graph_logical_dataset**
 ```bash
-cd data_preprocess/logic/graph_dataset_gen
-python logic.py --output_dir ../data/graph_dataset --output_file graph_search.json --num_samples <num_samples>
-cd ..
-python process_graph_dataset.py
+uv pip install pybind11
+cd data_preprocess/logic/graph_dataset_gen/
+python logic.py --num_samples <num_samples>
+cd ../../..  # return to Reasoning360
+python data_preprocess/logic/process_graph_dataset.py
 ```
 
 **ordering_puzzle_dataset**
 ```bash
-cd data_preprocess/logic
 uv pip install Faker==37.1.0
-python puzzle_gen.py --num_puzzles <num_puzzles> --output_dir data/puzzles_dataset --output_file puzzles_dataset.json  --test True
-python process_puzzles_dataset.py
+python data_preprocess/logic/puzzle_gen.py --num_puzzles <num_puzzles> --output_dir data/raw --output_file puzzles_dataset.json  --test True
+python data_preprocess/logic/process_puzzles_dataset.py
 ```
 
 ## Simulation
@@ -75,6 +74,7 @@ python data_preprocess/simulation/codeio.py --train-sample-size <train_sample_si
 
 ## Table
 ```bash
+uv pip install gdown
 python data_preprocess/table/multihier.py
 ```
 

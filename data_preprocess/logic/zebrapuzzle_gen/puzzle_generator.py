@@ -168,7 +168,7 @@ def run_parallel_generation(total_puzzles = None, num_processes=None):
     
     return results
 
-def save_puzzles(results, output_dir="./zebra_puzzles", output_file="zebra_puzzles.json"):
+def save_puzzles(results, output_dir="./data/raw", output_file="zebra_puzzles.json"):
     import os
     import json
     
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate puzzles in parallel.")
     parser.add_argument("--num_puzzles", type=int, default=100, help="Total number of puzzles to generate")
     parser.add_argument("--num_processes", type=int, default=16, help="Number of processes to use for generation")
-    parser.add_argument("--output_dir", type=str, default="../data/zebra_puzzles", help="Directory to save generated puzzles")
+    parser.add_argument("--output_dir", type=str, default="data/raw", help="Directory to save generated puzzles")
     parser.add_argument("--output_file", type=str, default="zebra_puzzles.json", help="Filename for the generated puzzles")
     args = parser.parse_args()
     multiprocessing.freeze_support()

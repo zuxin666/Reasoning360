@@ -252,7 +252,8 @@ if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Create the "generated_QAs" folder at the same level as the Python file if it doesn't exist
-    output_folder = os.path.join(base_dir, args.output_dir)
+    # output_folder = os.path.join(base_dir, args.output_dir)
+    output_folder = args.output_dir
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
