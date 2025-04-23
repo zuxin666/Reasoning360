@@ -39,7 +39,7 @@ def get_datasets(cache_dir: str):
         return None, None
 
 
-def make_map_fn(split: str, data_source: str) -> callable:
+def make_map_fn(split: str, data_source: str, verbose: bool) -> callable:
     def process_fn(example, idx):
         # Get the problem description
         prompt = example["problem"]
@@ -105,12 +105,13 @@ check_{fn_name}()
                     )
                 for future in as_completed(futures):
                     exec_succ, output, stdin, stdout = future.result()
-                    pass_test = exec_succ and fuzzy_equal(output.strip(), stdout.strip(), verbose=False)
+                    pass_test = exec_succ and fuzzy_equal(output.strip(), stdout.strip(), verbose=verbose)
                     if not pass_test:
                         print(f"Test code failed for example {idx}")
-                        print(f"Input: {stdin}")
-                        print(f"Expected output: {stdout}")
-                        print(f"Actual output: {output}")
+                        if verbose:
+                            print(f"Input: {stdin}")
+                            print(f"Expected output: {stdout}")
+                            print(f"Actual output: {output}")
                         return EMPTY_EXAMPLE
             
             oracle = json.dumps({"inputs": stdin_list, "outputs": stdout_list})
@@ -159,6 +160,7 @@ if __name__ == '__main__':
     parser.add_argument('--train-sample-size', type=int, default=None,
                         help='Number of samples to use from training dataset. If None, use all samples.')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    parser.add_argument('--verbose', type=bool, default=False, help='Whether to print verbose output.')
 
     args = parser.parse_args()
 
@@ -173,7 +175,7 @@ if __name__ == '__main__':
     dataset, _ = get_datasets(cache_dir)
 
     # Process the dataset
-    process_fn = make_map_fn('train', data_source)
+    process_fn = make_map_fn('train', data_source, args.verbose)
         
     dataset = dataset.map(function=process_fn, with_indices=True, num_proc=64)
 
