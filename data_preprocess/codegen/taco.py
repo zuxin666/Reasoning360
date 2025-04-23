@@ -27,30 +27,6 @@ EMPTY_EXAMPLE = {
 }
 
 
-def minimize_stdio(inputs, outputs, max_n_tests=8):
-    """Minimize the number of stdin/stdout test cases."""
-    stdin_list = []
-    stdout_list = []
-    for stdin, stdout in zip(inputs, outputs):
-        if isinstance(stdin, list):
-            stdin = "\n".join(stdin)
-        if isinstance(stdout, list):
-            stdout = "\n".join(stdout)
-        if sys.getsizeof(stdin) > 4 * 1024:
-            continue
-        stdout = stdout.replace("\r\n", "\n")
-        stdin_list.append(stdin)
-        stdout_list.append(stdout)
-
-    zipped = sorted(zip(stdin_list, stdout_list), key=lambda x: sys.getsizeof(x[0]))
-
-    if not zipped:
-        print("No tests found!")
-        return [], []
-
-    sorted_stdin, sorted_stdout = zip(*zipped)
-    return list(sorted_stdin[:max_n_tests]), list(sorted_stdout[:max_n_tests])
-
 
 def get_datasets(cache_dir: str):
     """
@@ -135,11 +111,19 @@ for i, o in zip(_inputs, _outputs):
             oracle_json = json.dumps({"functional": test_code})
             
         elif "inputs" in oracle and "outputs" in oracle:  # STDIN/STDOUT tests
-            stdin_list, stdout_list = minimize_stdio(
-                oracle["inputs"], oracle["outputs"]
-            )
+            stdin_list, stdout_list = oracle["inputs"], oracle["outputs"]
             if len(stdin_list) == 0:
                 return EMPTY_EXAMPLE
+            
+            # handle list inputs and normalize line endings
+            stdin_list = [
+                "\n".join(stdin) if isinstance(stdin, list) else stdin 
+                for stdin in stdin_list
+            ]
+            stdout_list = [
+                ("\n".join(stdout) if isinstance(stdout, list) else stdout).replace("\r\n", "\n")
+                for stdout in stdout_list
+            ]
 
             # Verify the solution passes tests
             with ThreadPoolExecutor(max_workers=min(len(stdin_list), 8)) as executor:
