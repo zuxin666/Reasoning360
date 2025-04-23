@@ -54,6 +54,7 @@ python data_preprocess/logic/process_zebrapuzzle_dataset.py
 **graph_logical_dataset**
 ```bash
 uv pip install pybind11
+uv pip install Faker==37.1.0
 cd data_preprocess/logic/graph_dataset_gen/
 python logic.py --num_samples <num_samples>
 cd ../../..  # return to Reasoning360
@@ -63,7 +64,7 @@ python data_preprocess/logic/process_graph_dataset.py
 **ordering_puzzle_dataset**
 ```bash
 uv pip install Faker==37.1.0
-python data_preprocess/logic/puzzle_gen.py --num_puzzles <num_puzzles> --output_dir data/raw --output_file puzzles_dataset.json  --test True
+python data_preprocess/logic/puzzle_gen.py --test True --num_puzzles <num_puzzles>
 python data_preprocess/logic/process_puzzles_dataset.py
 ```
 

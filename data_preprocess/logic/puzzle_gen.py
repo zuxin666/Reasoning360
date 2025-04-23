@@ -198,8 +198,8 @@ class BirdPuzzleGenerator:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate ordering puzzles for evaluating reasoning in LLMs")
     parser.add_argument("--num_puzzles", type=int, default=10000, help="Number of puzzles to generate")
-    parser.add_argument("--output_dir", type=str, default="datasets", help="Output directory for generated puzzles")
-    parser.add_argument("--output_file", type=str, default="bird_puzzles.json", help="Output filename for generated puzzles")
+    parser.add_argument("--output_dir", type=str, default="data/raw", help="Output directory for generated puzzles")
+    parser.add_argument("--output_file", type=str, default="puzzles_dataset.json", help="Output filename for generated puzzles")
     parser.add_argument("--test", type=bool, default=False, help="Generate set without solution traces")
     args = parser.parse_args()
 
