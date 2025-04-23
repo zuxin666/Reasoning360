@@ -43,6 +43,10 @@ def make_map_fn(split: str, data_source: str) -> callable:
         # Add all test assertions
         for assertion in example['test_list'] + example.get('challenge_test_list', []):
             test_code += assertion + "\n"
+
+        # Add test cases to prompt
+        prompt += f"```python\n{test_code}```"
+        prompt += "\n\nPlease do not include the test cases in your solution."
         
         # Validate that the canonical solution passes the tests
         solution = example['code']
