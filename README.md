@@ -42,7 +42,7 @@ In preprocessing, we will process the data into a list of dictionaries, and then
     Note that, when we use verl to train the model, it will turn into a prompt string with `apply_chat_template`.
 
     Note that:
-    - You will probably need to add some task-specific instruction in the `question`. E.g., for math, we concatenate the raw problem with `Let's think step by step and output the final answer within \\boxed{}.`, so that it's easy to extract the answer from model output.
+    - You will probably need to add some task-specific instruction in the `question`. E.g., for math, we concatenate the raw problem with `Please output the final answer within \\boxed{}.`, so that it's easy to extract the answer from model output.
     - You don't need to instruct the model to "think step by step" or "wrap your thinking process in `<think>` `<\think>`". This should be taken care by verl during training with `apply_chat_template`. To enable this, we have a [script](scripts/tools/change_tokenizer_config.py) to modify the chat template of a huggingface model (currently only tested on Qwen).
     - Please add an instruction under the README of `data_preprocess`
 
