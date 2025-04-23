@@ -7,8 +7,7 @@ import re
 from sklearn.model_selection import train_test_split
 from transformers import AutoTokenizer
 
-from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset, add_suffix
-from verl.utils.data_process.prompt import build_zero_style_prompt
+from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
 # Constants
 INSTRUCTION_FOLLOW = "Please put your answer within <answer> and </answer> tags, for example <answer> fdebme </answer>."
@@ -26,14 +25,13 @@ def get_dataset(json_path):
     print(f"Loading the dataset from {json_path}...")
     return datasets.load_dataset('json', data_files=json_path)['train']
 
-def make_map_fn(split: str, data_source: str, model_type: str) -> callable:
+def make_map_fn(split: str, data_source: str) -> callable:
     """
     Create a mapping function for processing dataset examples.
     
     Args:
         split (str): Data split ('train' or 'test')
         data_source (str): Name of the data source
-        model_type (str): Model type ('instruct' or 'base')
         
     Returns:
         callable: Function to map over the dataset
@@ -43,48 +41,27 @@ def make_map_fn(split: str, data_source: str, model_type: str) -> callable:
         lookahead = example['look_ahead']
         answer = example['correct_response']
         
-        if model_type == 'instruct':
-            # Create user message with instructions
-            formatted_question = f"{question} Think step by step to find the answer. Show your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> fdebme </answer>."
-            
-            data = {
-                "data_source": data_source,
-                "prompt": [{
-                    "role": "user",
-                    "content": formatted_question,
-                }],
-                "ability": "logical_reasoning",
-                "apply_chat_template": True,
-                "reward_model": {
-                    "style": "rule",
-                    "ground_truth": answer
-                },
-                "extra_info": {
-                    'id': example['id'] if 'id' in example else str(idx),
-                    'lookahead': lookahead,
-                    'split': split
-                }
+        # Create user message with instructions
+        formatted_question = question + " " + INSTRUCTION_FOLLOW
+        
+        data = {
+            "data_source": data_source,
+            "prompt": [{
+                "role": "user",
+                "content": formatted_question,
+            }],
+            "ability": "logical_reasoning",
+            "apply_chat_template": True,
+            "reward_model": {
+                "style": "rule",
+                "ground_truth": answer
+            },
+            "extra_info": {
+                'id': example['id'] if 'id' in example else str(idx),
+                'lookahead': lookahead,
+                'split': split
             }
-        elif model_type == 'base':
-            # Use zero_style_prompt similar to the math dataset
-            prompt = build_zero_style_prompt(extra_instruction=INSTRUCTION_FOLLOW)
-            
-            data = {
-                "data_source": data_source,
-                "prompt": [],  # no messages-like prompt
-                "raw_prompt": prompt.replace("{{prompt}}", question),
-                "ability": "logical_reasoning",
-                "apply_chat_template": False,
-                "reward_model": {
-                    "style": "rule",
-                    "ground_truth": answer
-                },
-                "extra_info": {
-                    'id': example['id'] if 'id' in example else str(idx),
-                    'lookahead': lookahead,
-                    'split': split
-                }
-            }
+        }
         
         if idx == 0:
             print(f"data_source: {data_source}, split: {split}, idx: {idx}")
@@ -98,13 +75,12 @@ def make_map_fn(split: str, data_source: str, model_type: str) -> callable:
 if __name__ == '__main__':
     """Main script execution: parse args, load, process, and save datasets."""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json_path', default='data/graph_dataset/graph_search.json', help='Path to json file')
-    parser.add_argument('--output_dir', default='../../../data', help='Directory to save processed data')
+    parser.add_argument('--json_path', default='data/raw/graph_search.json', help='Path to json file')
+    parser.add_argument('--output_dir', default='data', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
-    parser.add_argument('--train_size', type=float, default=0.2, help='Proportion of data for train set')
-    parser.add_argument('--test_size', type=float, default=0.02, help='Proportion of data for test set')
+    parser.add_argument('--train_size', type=float, default=0.8, help='Proportion of data for train set')
+    parser.add_argument('--test_size', type=float, default=0.2, help='Proportion of data for test set')
     parser.add_argument('--data_source', default='graph_logical_dataset', help='Name of data source')
-    parser.add_argument('--model_type', default='base', choices=['base', 'instruct'], help='Model type base or instruct')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility when splitting data')
     parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')
     args = parser.parse_args()
@@ -130,8 +106,8 @@ if __name__ == '__main__':
     print(f"Train set size: {len(train_indices)}, Test set size: {len(test_indices)}")
     
     # Process the datasets
-    process_train_fn = make_map_fn('train', args.data_source, args.model_type)
-    process_test_fn = make_map_fn('test', args.data_source, args.model_type)
+    process_train_fn = make_map_fn('train', args.data_source)
+    process_test_fn = make_map_fn('test', args.data_source)
     
     train_dataset = dataset.select(train_indices).map(function=process_train_fn, with_indices=True)
     test_dataset = dataset.select(test_indices).map(function=process_test_fn, with_indices=True)

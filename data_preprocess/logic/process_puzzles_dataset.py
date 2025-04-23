@@ -26,19 +26,17 @@ from transformers import (
     AutoTokenizer,
 )
 
-from verl.utils.data_process.prompt import build_zero_style_prompt
-from verl.utils.data_process.utils import add_suffix, set_seed, sample_dataset, save_dataset
+from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
 # Constants
 INSTRUCTION_FOLLOW = "Please put your answer within <answer> and </answer> tags, for example <answer> ['pigeon', 'sparrow', 'quail'] </answer>."
 
-def make_prefix(dp, model_type = 'instruct'):
+def make_prefix(dp):
     """
-    Create a suitable prompt prefix based on model type.
+    Create a suitable prompt prefix.
     
     Args:
         dp (dict): Data point containing input, instruction, etc.
-        model_type (str): 'instruct' or 'base'
         
     Returns:
         str: Formatted prompt
@@ -46,10 +44,7 @@ def make_prefix(dp, model_type = 'instruct'):
     constraints = dp['input']
     result = dp['ground_truth']
     instruction = dp['instruction']
-    if model_type == 'instruct':
-        prefix = f"{instruction}. The constraints are: {constraints}. Think step by step to find the answer. Show your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> ['pigeon', 'sparrow', 'quail'] </answer>."
-    else:
-        prefix = f"{instruction}. The constraints are: {constraints}."
+    prefix = f"{instruction}. The constraints are: {constraints}."
     return prefix
 
 
@@ -69,68 +64,43 @@ def extract_from_ground_truth(text):
         return eval(text)
 
 
-def make_map_fn(split: str, data_source: str, model_type: str) -> callable:
+def make_map_fn(split: str, data_source: str) -> callable:
     """
     Create a mapping function for processing dataset examples.
     
     Args:
         split (str): Data split ('train' or 'test')
         data_source (str): Name of the data source
-        model_type (str): Model type ('instruct' or 'base')
         
     Returns:
         callable: Function to map over the dataset
     """
     def process_fn(example, idx):
         # Generate the appropriate question format based on model type
-        question = make_prefix(example, model_type)
+        question = make_prefix(example)
         num_objects = example['num_objects']
         final_arrangement = extract_from_ground_truth(example['ground_truth'])
         
-        if model_type == 'instruct':
-            data = {
-                "data_source": data_source,
-                "prompt": [{
-                    "role": "user",
-                    "content": question,
-                }],
-                "ability": "logical_reasoning",
-                "reward_model": {
-                        "style": "rule",
-                        "ground_truth": final_arrangement
-                    },
-                "apply_chat_template": True,
-                "extra_info": {
-                    'id': example['id'] if 'id' in example else str(idx),
-                    'raw_instruction': example['instruction'],
-                    'raw_input': example['input'],
-                    'num_objects': num_objects,
-                    'split': split,
-                }
+        data = {
+            "data_source": data_source,
+            "prompt": [{
+                "role": "user",
+                "content": question + " " + INSTRUCTION_FOLLOW
+            }],
+            "ability": "logical_reasoning",
+            "reward_model": {
+                "style": "rule",
+                "ground_truth": final_arrangement
+            },
+            "apply_chat_template": True,
+            "extra_info": {
+                'id': example['id'] if 'id' in example else str(idx),
+                'raw_instruction': example['instruction'],
+                'raw_input': example['input'],
+                'num_objects': num_objects,
+                'split': split,
             }
-        elif model_type == 'base':
-            # Use the build_zero_style_prompt function for base model
-            # The question variable already has the appropriate format from make_prefix
-            prompt = build_zero_style_prompt(extra_instruction=INSTRUCTION_FOLLOW)
-            
-            data = {
-                "data_source": data_source,
-                "prompt": [],  # no messages-like prompt. instead, use from-scratch raw_prompt
-                "raw_prompt": prompt.replace("{{prompt}}", question),
-                "ability": "logical_reasoning",
-                "reward_model": {
-                        "style": "rule",
-                        "ground_truth": final_arrangement
-                    },
-                "apply_chat_template": False,
-                "extra_info": {
-                    'id': example['id'] if 'id' in example else str(idx),
-                    'raw_instruction': example['instruction'],
-                    'raw_input': example['input'],
-                    'num_objects': num_objects,
-                    'split': split,
-                }
-            }
+        }
         
         if idx == 0:
             print(f"data_source: {data_source}, split: {split}, idx: {idx}")
@@ -143,13 +113,12 @@ def make_map_fn(split: str, data_source: str, model_type: str) -> callable:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json_path', default='data/puzzles_dataset/puzzles_dataset.json', help='Path to json file')
-    parser.add_argument('--output_dir', default='../../../data', help='Directory to save processed data')
+    parser.add_argument('--json_path', default='data/raw/puzzles_dataset.json', help='Path to json file')
+    parser.add_argument('--output_dir', default='data', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
-    parser.add_argument('--train_size', type=float, default=0.2, help='Proportion of data for train set')
-    parser.add_argument('--test_size', type=float, default=0.02, help='Proportion of data for test set')
+    parser.add_argument('--train_size', type=float, default=0.8, help='Proportion of data for train set')
+    parser.add_argument('--test_size', type=float, default=0.2, help='Proportion of data for test set')
     parser.add_argument('--data_source', default='ordering_puzzle_dataset', help='Name of data source')
-    parser.add_argument('--model_type', default='base', choices = ['base', 'instruct'], help='Model type base or instruct')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')
     args = parser.parse_args()
@@ -166,7 +135,7 @@ if __name__ == '__main__':
         raise ValueError(f"The sum of train_size ({args.train_size}) and test_size ({args.test_size}) cannot exceed 1.0")
    
     # Transform dataset
-    process_train_fn = make_map_fn('train', args.data_source, args.model_type)
+    process_train_fn = make_map_fn('train', args.data_source)
     processed_dataset = dataset.map(function=process_train_fn, with_indices=True)
     
     # Split dataset into train and test

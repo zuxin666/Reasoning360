@@ -3,31 +3,26 @@ import random
 import ast
 import operator
 import json
+import signal
+import contextlib
 
+class TimeoutException(Exception):
+    pass
 
+@contextlib.contextmanager
+def time_limit(seconds: float):
+    def signal_handler(signum, frame):
+        raise TimeoutException("Timed out!")
 
-def validate_format(response):
-    if not response:
-        return False
-
-    pattern = r"<think>(.*?)</think>\s*<answer>(.*?)</answer>"
-    match = re.search(pattern, response, re.DOTALL)
-    if match:
-        return True
-    return False
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    signal.signal(signal.SIGALRM, signal_handler)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
 
 def extract_solution(solution_str):
-    """Extract the final arrangement from the solution string."""
-    # Remove everything before the first "Assistant:"
-    if "Assistant:" in solution_str:
-        solution_str = solution_str.split("Assistant:", 1)[1]
-    # for llama chat template
-    elif "<|start_header_id|>assistant<|end_header_id|>" in solution_str:
-        solution_str = solution_str.split("<|start_header_id|>assistant<|end_header_id|>", 1)[1]
-    # qwen chat template
-    elif "<|im_start|>assistant" in solution_str:
-        solution_str = solution_str.split("<|im_start|>assistant", 1)[1]
-
+    
     answer_pattern = r'<answer>(.*?)</answer>'
     match = re.finditer(answer_pattern, solution_str)
     matches = list(match)
@@ -72,49 +67,23 @@ def compute_accuracy(answer, ground_truth):
     accuracy = correct_cells / (num_rows * num_cols)
     return accuracy
 
-def compute_score(solution_str, ground_truth, method='strict', format_score=0.1, score=1.):
-
-    
-    predicted_arrangement = extract_solution(solution_str)
-    print(f"Type of predicted arrangement: {type(predicted_arrangement)}")
-    do_print = random.randint(1, 64) == 1
-    if do_print:
-        print("--------------------------------")
-        print(f"Target: {ground_truth}")
-        print(f"Extracted arrangement: {predicted_arrangement}")
-        print(f"Solution string: {solution_str}")
-        print(f"--------------------------------")
-
-    if predicted_arrangement is None:
-        if do_print:
-            print(f"No final arrangement found")
-        return 0.0
-
-
-    if not validate_format(solution_str):
-        if do_print:
-            print(f"Format not followed properly")
-        return 0.0
-
+def compute_score(solution_str, ground_truth, method='strict', timeout: float = 10.0):
     try:
-        accuracy = compute_accuracy(predicted_arrangement, ground_truth)
-        if do_print:
-            print(f"Accuracy: {accuracy}")
-        return format_score + score * accuracy
+        with time_limit(timeout):
+            predicted_arrangement = extract_solution(solution_str)
+
+            if predicted_arrangement is None:
+                return 0.0
+
+            try:
+                accuracy = compute_accuracy(predicted_arrangement, ground_truth)
+                return accuracy
+            except Exception as e:
+                return 0.0
+
+    except TimeoutException:
+        print("Computation timed out in zebra_puzzle")
+        return 0.0
     except Exception as e:
-        if do_print:
-            print(f"Error evaluating result: {type(e).__name__}: {str(e)}")
-        return format_score
-
-
-
-
-
-
-
-
-    
-    
-
-
-    
+        print(f"Error in compute_score in zebra_puzzle: {e}")
+        return 0.0

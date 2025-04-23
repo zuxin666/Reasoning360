@@ -1,25 +1,20 @@
 import os
 import datasets
 import argparse
-import re
 from sklearn.model_selection import train_test_split
 
-from verl.utils.data_process.prompt import build_zero_style_prompt
-from verl.utils.data_process.utils import add_suffix, set_seed, sample_dataset, save_dataset
+from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
 # Instruction for zebra puzzle answers
 InstructionFollow = "Output the grid in the form of a dictionary with keys as header containing a list of the attributes and rows denoting each row of the final grid. Please return the final answer in <answer> </answer> tags, for example <answer> {\"header\": [\"Position\", \"Nationality\", \"Job\"], \"rows\": [[\"1\", \"british\", \"plumber\"], [\"2\", \"polish\", \"carpenter\"]]} </answer>."
 
-def make_prefix(dp, model_type = 'instruct'):
+def make_prefix(dp):
     clues = dp['clues']
     if isinstance(clues, list):
         clues = "\n".join(clues)
     result = dp['ground_truth']
     instruction = dp['instruction']
-    if model_type == 'instruct':
-        prefix = f"{instruction} The clues are: {clues}. Think step by step to find the answer. Show your work in <think> </think> tags. Output the grid in the form of a dictionary with keys as header containing a list of the attributes and rows denoting each row of the final grid.And return the final answer in <answer> </answer> tags, for example <answer> {{ \"header\": [\"Position\", \"Nationality\", \"Job\"], \"rows\": [[\"1\", \"british\", \"plumber\"], [\"2\", \"polish\", \"carpenter\"]]}} </answer>."
-    else:
-        prefix = f"{instruction} The clues are: {clues}."
+    prefix = f"{instruction} The clues are: {clues}."
     return prefix
 
 
@@ -29,55 +24,32 @@ def extract_from_ground_truth(text):
     else:
         return eval(text)
         
-def make_map_fn(split, data_source, model_type):
+def make_map_fn(split, data_source):
     def process_fn(example, idx):
-        question = make_prefix(example, model_type)
+        question = make_prefix(example)
         grid_size = str(example['config']["cols"]) + "x" + str(example['config']["rows"])
         final_grid = extract_from_ground_truth(example['ground_truth'])
         
-        if model_type == 'instruct':
-            data = {
-                "data_source": data_source,
-                "prompt": [{
-                    "role": "user",
-                    "content": question
-                }],
-                "ability": "logical_reasoning", 
-                "reward_model": {
-                        "style": "rule",
-                        "ground_truth": final_grid,
-                    },
-                "apply_chat_template": True,
-                "extra_info": {
-                    'id': example['id'] if 'id' in example else str(idx),
-                    "grid_size": grid_size,
-                    'raw_instruction': example['instruction'],
-                    'raw_input': example['clues'],
-                    'split': split,
-                }
+        data = {
+            "data_source": data_source,
+            "prompt": [{
+                "role": "user",
+                "content": question + " " + InstructionFollow
+            }],
+            "ability": "logical_reasoning", 
+            "reward_model": {
+                    "style": "rule",
+                    "ground_truth": final_grid,
+                },
+            "apply_chat_template": True,
+            "extra_info": {
+                'id': example['id'] if 'id' in example else str(idx),
+                "grid_size": grid_size,
+                'raw_instruction': example['instruction'],
+                'raw_input': example['clues'],
+                'split': split,
             }
-        elif model_type == 'base':
-            # Use the build_zero_style_prompt function for base model
-            prompt = build_zero_style_prompt(prompt=question, extra_instruction=InstructionFollow)
-            
-            data = {
-                "data_source": data_source,
-                "prompt": [],  # no messages-like prompt. instead, use from-scratch raw_prompt
-                "raw_prompt": prompt,
-                "ability": "logical_reasoning",
-                "reward_model": {
-                        "style": "rule",
-                        "ground_truth": final_grid,
-                    },
-                "apply_chat_template": False,
-                "extra_info": {
-                    'id': example['id'] if 'id' in example else str(idx),
-                    "grid_size": grid_size,
-                    'raw_instruction': example['instruction'],
-                    'raw_input': example['clues'],
-                    'split': split,
-                }
-            }
+        }
         
         if idx == 0:
             print(f"data_source: {data_source}, split: {split}, idx: {idx}")
@@ -90,13 +62,12 @@ def make_map_fn(split, data_source, model_type):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json_path', default='data/zebra_puzzles/zebra_puzzles.json', help='Path to json file')
-    parser.add_argument('--output_dir', default='../../data', help='Directory to save processed data')
+    parser.add_argument('--json_path', default='data/raw/zebra_puzzles.json', help='Path to json file')
+    parser.add_argument('--output_dir', default='data', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
-    parser.add_argument('--train_size', type=float, default=0.2, help='Proportion of data for train set')
-    parser.add_argument('--test_size', type=float, default=0.02, help='Proportion of data for test set')
+    parser.add_argument('--train_size', type=float, default=0.8, help='Proportion of data for train set')
+    parser.add_argument('--test_size', type=float, default=0.2, help='Proportion of data for test set')
     parser.add_argument('--data_source', default='zebra_puzzle_dataset', help='Name of data source')
-    parser.add_argument('--model_type', default='base', choices = ['base', 'instruct'], help='Model type base or instruct')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')
     args = parser.parse_args()
@@ -108,7 +79,7 @@ if __name__ == '__main__':
     dataset = datasets.load_dataset('json', data_files=args.json_path)['train']
    
     # Transform dataset
-    process_train_fn = make_map_fn('train', args.data_source, args.model_type)
+    process_train_fn = make_map_fn('train', args.data_source)
     processed_dataset = dataset.map(function=process_train_fn, with_indices=True)
     
     if args.train_size + args.test_size > 1.0:
@@ -170,4 +141,3 @@ if __name__ == '__main__':
     print(f"Original train set size: {original_train_size} examples")
     print(f"Final train set size: {len(train_dataset)} examples")
     print(f"Test set: {len(test_dataset)} examples")
-    

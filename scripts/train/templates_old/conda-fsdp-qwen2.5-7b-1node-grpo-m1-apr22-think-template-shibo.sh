@@ -10,15 +10,15 @@ DATA_DIR=${WORKING_DIR}/data
 # train_files="['$bigmath_train_path']"
 # test_files="['$math_test_path']"
 
-test_files="['data/test/logic__graph_logical_dataset_201.parquet', 'data/test/logic__ordering_puzzle_dataset_200.parquet', 'data/test/logic__zebra_puzzle_dataset_200.parquet', 'data/test/math__math_500.parquet']"
-train_files="['data/train/logic__graph_logical_dataset_2.0k.parquet', 'data/train/logic__ordering_puzzle_dataset_2k.parquet', 'data/train/logic__zebra_puzzle_dataset_2k.parquet', 'data/train/math__bigmath_filtered_mar21_10k.parquet']"
+test_files="['data/test/logic__graph_logical_dataset_102.parquet', 'data/test/logic__ordering_puzzle_dataset_100.parquet', 'data/test/logic__zebra_puzzle_dataset_100.parquet', 'data/test/math__math_500.parquet']"
+train_files="['data/train/logic__graph_logical_dataset_404.parquet', 'data/train/logic__ordering_puzzle_dataset_400.parquet', 'data/train/logic__zebra_puzzle_dataset_400.parquet', 'data/train/math__bigmath_preview_filtered_mar21_1k.parquet']"
 
 # first download the model from huggingface
 # huggingface-cli download Qwen/Qwen2.5-3B --local-dir ~/hf_models/Qwen2.5-3B
-BASE_MODEL=${HOME}/hf_models/Qwen2.5-7B
+BASE_MODEL=${HOME}/hf_models/Qwen2.5-7B-think
 
 WANDB_PROJECT=Reasoning360
-WANDB_EXPERIMENT_NAME=${BASE_MODEL##*/}-Logic
+WANDB_EXPERIMENT_NAME=${BASE_MODEL##*/}-Mixed-Think
 
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export HYDRA_FULL_ERROR=1

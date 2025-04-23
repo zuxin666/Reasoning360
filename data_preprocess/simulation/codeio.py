@@ -80,14 +80,13 @@ def get_datasets(cache_dir, download=False):
     return Dataset.from_list(train_dataset), Dataset.from_list(test_dataset)
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
+def make_map_fn(split: str, data_source: str) -> callable:
     """
     Creates a mapping function to process individual examples of the dataset.
 
     Args:
         split: The dataset split ('train' or 'test').
         data_source: Identifier for the data source.
-        prompt_style: The style of prompt to use (e.g., 'zero_style').
 
     Returns:
         A callable function that takes an example and index, and returns the processed data.
@@ -96,27 +95,25 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
         given_type = example.pop("given_type")
         predict_type = example.pop("predict_type")
         if predict_type == "input":
-            Prompt = RawInputPredictionPrompt
+            PromptTemplate = RawInputPredictionPrompt
         else:
-            Prompt = RawOutputPredictionPrompt
-        raw_prompt = build_zero_style_prompt(prompt=Prompt, extra_instruction=InstructionFollow)
-        raw_prompt = raw_prompt.replace("{{given_type}}", given_type)
+            PromptTemplate = RawOutputPredictionPrompt
+        prompt = PromptTemplate.replace("{{given_type}}", given_type) + InstructionFollow
         for key in ["problem_description", "io_requirements", given_type, "refcode"]:
             feature = example.pop(key)
             if key in ["input", "output"]:
-                raw_prompt = raw_prompt.replace("{{given}}", str(feature))
+                prompt = prompt.replace("{{given}}", str(feature))
             else:
-                raw_prompt = raw_prompt.replace(f"{{{{{key}}}}}", str(feature))
+                prompt = prompt.replace(f"{{{{{key}}}}}", str(feature))
     
         sol = example.pop(predict_type)
         answer = AnswerTemplate.replace("{{predict_type}}", predict_type)
         answer = answer.replace("{{sol}}", sol)
         data = {
             "data_source": data_source,
-            "prompt": [],
-            "raw_prompt": raw_prompt,
+            "prompt": [{"role": "user", "content": prompt}],
             "ability": "coding-inference",
-            "apply_chat_template": False,
+            "apply_chat_template": True,
             "reward_model": {"style": "rule", "ground_truth": answer},
             "extra_info": {"split": split, 
                             "index": idx,
@@ -140,8 +137,6 @@ if __name__ == '__main__':
                         help='Number of samples to use from training dataset. If None, use all samples.')
     parser.add_argument('--test-sample-size', type=int, default=None,
                         help='Number of samples to use from test dataset. If None, use all samples.')
-    parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
-                        help='Prompt style to use (currently only zero_style supported).')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     args = parser.parse_args()
@@ -159,8 +154,8 @@ if __name__ == '__main__':
     train_dataset, test_dataset = get_datasets(cache_dir, download=True)
 
     # Process the dataset
-    process_train_fn = make_map_fn('train', data_source, args.prompt_style)
-    process_test_fn = make_map_fn('test', data_source, args.prompt_style)
+    process_train_fn = make_map_fn('train', data_source)
+    process_test_fn = make_map_fn('test', data_source)
     train_dataset = train_dataset.map(function=process_train_fn, with_indices=True)
     test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
 

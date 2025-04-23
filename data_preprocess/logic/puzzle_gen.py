@@ -198,8 +198,8 @@ class BirdPuzzleGenerator:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate ordering puzzles for evaluating reasoning in LLMs")
     parser.add_argument("--num_puzzles", type=int, default=10000, help="Number of puzzles to generate")
-    parser.add_argument("--output_dir", type=str, default="datasets", help="Output directory for generated puzzles")
-    parser.add_argument("--output_file", type=str, default="bird_puzzles.json", help="Output filename for generated puzzles")
+    parser.add_argument("--output_dir", type=str, default="data/raw", help="Output directory for generated puzzles")
+    parser.add_argument("--output_file", type=str, default="puzzles_dataset.json", help="Output filename for generated puzzles")
     parser.add_argument("--test", type=bool, default=False, help="Generate set without solution traces")
     args = parser.parse_args()
 
@@ -252,7 +252,8 @@ if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Create the "generated_QAs" folder at the same level as the Python file if it doesn't exist
-    output_folder = os.path.join(base_dir, args.output_dir)
+    # output_folder = os.path.join(base_dir, args.output_dir)
+    output_folder = args.output_dir
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
