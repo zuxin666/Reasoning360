@@ -52,6 +52,7 @@ export VLLM_USE_V1=0
     critic.ppo_micro_batch_size_per_gpu=32 \
     algorithm.kl_ctrl.kl_coef=0.0 \
     algorithm.adv_estimator=grpo \
+    reward_model.reward_manager=prime \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name=${WANDB_PROJECT} \

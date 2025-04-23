@@ -2,6 +2,23 @@ import re
 import random
 import ast
 import operator
+import signal
+import contextlib
+
+class TimeoutException(Exception):
+    pass
+
+@contextlib.contextmanager
+def time_limit(seconds: float):
+    def signal_handler(signum, frame):
+        raise TimeoutException("Timed out!")
+
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    signal.signal(signal.SIGALRM, signal_handler)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
 
 def extract_solution(solution_str):
 
@@ -66,32 +83,42 @@ def compute_edit_distance(list1, list2):
     return dp[len(list1)][len(list2)]
 
 # granular reward function
-def compute_score(solution_str, ground_truth, method='strict'):
+def compute_score(solution_str, ground_truth, method='strict', timeout: float = 10.0):
     """The scoring function for bird puzzles task.
     
     Args:
         solution_str: the solution text
         ground_truth: dictionary containing target number and available numbers
         method: the method to extract the solution
+        timeout: maximum time in seconds to allow for computation
     """
-    target = ground_truth.tolist()
-    predicted_arrangement = extract_solution(solution_str=solution_str)
-    
-    if predicted_arrangement is None:
-        return 0
-
-    # Evaluate equation
     try:
-        if isinstance(predicted_arrangement, list) and isinstance(target, list):            
-            edit_distance = compute_edit_distance(predicted_arrangement, target)
-            max_possible_dist = max(len(predicted_arrangement), len(target))
-        result = predicted_arrangement == target
-        if result:
-            return 1
-        elif method != 'strict':
-            reward = max(1.0 - (edit_distance / max_possible_dist))
-            return reward
-        else:
-            return 0
+        with time_limit(timeout):
+            target = ground_truth.tolist()
+            predicted_arrangement = extract_solution(solution_str=solution_str)
+            
+            if predicted_arrangement is None:
+                return 0
+
+            # Evaluate equation
+            try:
+                if isinstance(predicted_arrangement, list) and isinstance(target, list):            
+                    edit_distance = compute_edit_distance(predicted_arrangement, target)
+                    max_possible_dist = max(len(predicted_arrangement), len(target))
+                result = predicted_arrangement == target
+                if result:
+                    return 1
+                elif method != 'strict':
+                    reward = max(1.0 - (edit_distance / max_possible_dist))
+                    return reward
+                else:
+                    return 0
+            except Exception as e:
+                return 0
+
+    except TimeoutException:
+        print("Computation timed out in puzzles_dataset")
+        return 0.0
     except Exception as e:
-        return 0
+        print(f"Error in compute_score in puzzles_dataset: {e}")
+        return 0.0
