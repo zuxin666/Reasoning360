@@ -3,17 +3,14 @@
 import os
 import argparse
 import json
-import random
-import time
 import datasets
 from datasets import Dataset
 import subprocess
 
-from verl.utils.data_process.prompt import build_zero_style_prompt
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 from verl.utils.data_process.filter import LengthFilter
 
-
+import transformers
 
 RawARCPrompt = """You are a puzzle solving wizard. You are given a puzzle from the abstraction and reasoning corpus developed by Francois Chollet. Finally, you have to put your answer within <answer> and </answer> tags. 
 Here are the example input and output pairs from which you should learn the underlying rule to later predict the output for the given test input:
@@ -27,17 +24,21 @@ Now, solve the following puzzle based on its input grid by applying the rules yo
 What is the output grid? Please put your answer within <answer> and </answer> tags, your final answer should be only the output grid, for example, <answer> your answer </answer>.
 """
 
-def get_datasets(cache_dir, download=False):
+def get_datasets(cache_dir, name, download=False):
     """
     Downloads (if specified) and loads the CodeIO PyEdu Reasoning dataset.
     """
     # Download the dataset
-    dir_path = os.path.join(cache_dir, "ARC-AGI-2/")
+    if name == "arcagi1":
+        dir_path = os.path.join(cache_dir, "ARC-AGI-1/")
+        url = "https://github.com/fchollet/ARC-AGI.git"
+    elif name == "arcagi2":
+        dir_path = os.path.join(cache_dir, "ARC-AGI-2/")
+        url = "https://github.com/arcprize/ARC-AGI-2.git"
     if download: 
         if os.path.isdir(dir_path):
             pass
         else:
-            url = "https://github.com/arcprize/ARC-AGI-2.git"
             try:
                 subprocess.run(["git", "clone", url, str(dir_path)], check=True)
             except subprocess.CalledProcessError as e:
@@ -45,7 +46,7 @@ def get_datasets(cache_dir, download=False):
                 
     # Build the dataset.
     train_dataset, test_dataset = [], []
-    data_dir = os.path.join(cache_dir, "ARC-AGI-2/")
+    data_dir = dir_path
     train_dir = os.path.join(data_dir, "data/training/")
     for data_path in os.listdir(train_dir):
         with open(os.path.join(train_dir, data_path), 'r') as f:
@@ -109,7 +110,7 @@ if __name__ == "__main__":
     parser.add_argument('--data-dir', default='data',
                         help='Base directory to save the processed data files.')
     parser.add_argument('--domain', default="simulation", help='Domain of the dataset.')
-    parser.add_argument('--name', default="arcagi", help='Name of the dataset.')
+    parser.add_argument('--name', default="arcagi1", choices=['arcagi1', 'arcagi2'], help='Name of the dataset.')
     parser.add_argument('--train-sample-size', type=int, default=None,
                         help='Number of samples to use from training dataset. If None, use all samples.')
     parser.add_argument('--test-sample-size', type=int, default=None,
@@ -130,7 +131,7 @@ if __name__ == "__main__":
 
     # Download the dataset from Github, but still saving to HF_datasets_cache
     cache_dir = datasets.config.HF_DATASETS_CACHE
-    train_dataset, test_dataset = get_datasets(cache_dir, download=True)
+    train_dataset, test_dataset = get_datasets(cache_dir, args.name, download=True)
 
      # Process the dataset
     process_train_fn = make_map_fn('train', data_source, args.prompt_style)
@@ -141,7 +142,7 @@ if __name__ == "__main__":
     # Length filter
     try:
         tokenizer = transformers.AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B")
-        length_filter = LengthFilter(tokenizer=tokenizer, max_length=2048)
+        length_filter = LengthFilter(tokenizer=tokenizer, max_length=4096)
         train_dataset = train_dataset.filter(lambda x: length_filter.check(x), num_proc=64)
         test_dataset = test_dataset.filter(lambda x: length_filter.check(x), num_proc=64)
     except Exception as e:

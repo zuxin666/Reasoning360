@@ -87,9 +87,8 @@ def compare_solutions_with_padding(generated_output, correct_output, pad_value=-
 
 
 
-def compute_score(model_output: str, ground_truth: str) -> float:
+def compute_score(model_output: str, ground_truth: np.ndarray) -> float:
     model_output = str(model_output)
-    ground_truth = str(ground_truth)
     final_answer = extract_solution(model_output)
     is_correct, correct_percentage = compare_solutions_with_padding(final_answer, ground_truth)
     return correct_percentage
