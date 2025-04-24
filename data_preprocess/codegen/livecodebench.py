@@ -68,7 +68,7 @@ Below is the question:
 
 {problem_desc}
 
-You will use the following starter code to write the solution to the problem and enclose your code within delimiters.
+You will use the following starter code to write the solution to the problem and enclose your code within ```python delimiters.
 ```python
 {starter_code}
 ```"""
