@@ -66,10 +66,14 @@ def make_map_fn(split: str, data_source: str) -> callable:
         ]
         if example["starter_code"].strip():
             prompt_pieces.append(
-                "Also feel free to reuse/extend the following starter code:"
+                "You will use the following starter code to write the solution to the problem and enclose your code within ```python delimiters."
             )
             prompt_pieces.append(
                 f"```python\n{example['starter_code'].strip()}\n```"
+            )
+        else:
+            prompt_pieces.append(
+                "Read the inputs from stdin solve the problem and write the answer to stdout (do not directly test on the sample inputs). Enclose your code within ```python delimiters."
             )
 
         # Process oracle based on format
