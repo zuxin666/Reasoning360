@@ -100,7 +100,7 @@ def _deep_eq(a, b, tol=1e-5):
 
 for i, o in zip(_inputs, _outputs):
     assert _deep_eq({fn_name}(*i), o[0] if len(o) == 1 else tuple(o))
-        """
+"""
             
             # Validate the solution
             full_code = f"{solution}\n{test_code}"        
