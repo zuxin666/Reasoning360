@@ -8,7 +8,6 @@ import datasets
 from datasets import load_dataset, Dataset
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from verl.utils.data_process.prompt import build_zero_style_prompt
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 from verl.utils.data_process.filter import LengthFilter
 from verl.utils.reward_score.coder1 import code_exec, remote_check_stdio, fuzzy_equal, extract_code_from_string
@@ -17,7 +16,6 @@ from verl.utils.reward_score.coder1 import code_exec, remote_check_stdio, fuzzy_
 EMPTY_EXAMPLE = {
     "data_source": None,
     "prompt": None,
-    "raw_prompt": None,
     "apply_chat_template": False,
     "ability": None,
     "reward_model": None,
@@ -41,7 +39,7 @@ def get_datasets(cache_dir: str):
         return None, None
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
+def make_map_fn(split: str, data_source: str, verbose: bool) -> callable:
     def process_fn(example, idx):
         # Get the problem description
         prompt = example["problem"]
@@ -52,10 +50,31 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
         
         # Process tests
         tests = json.loads(example["tests"])
+        
+        # Now let's do some filtering
+        # 1. Remove examples with no tests
         if not tests:
             print(f"No tests found for example {idx}")
             return EMPTY_EXAMPLE
-                
+    
+        # 2. Remove examples with "image" in prompt, image typically will be in the following format:
+        # <image> or [image]
+        if "<image>" in prompt.lower() or "[image]" in prompt.lower():
+            print(f"Image found in prompt for example {idx}")
+            return EMPTY_EXAMPLE
+        
+        # 3. Remove examples with no problem description
+        # Check if prompt starts with unwanted patterns after removing common prefix
+        check_prompt = prompt
+        if "Solve the following coding problem using the programming language python:" in check_prompt:
+            check_prompt = check_prompt.split("Solve the following coding problem using the programming language python:")[1].lstrip()
+            
+        if (check_prompt.lower().startswith("example") or 
+            check_prompt.lower().startswith("input") or 
+            check_prompt.lower().startswith("-----input-----")):
+            print(f"Example starts with unwanted pattern for example {idx}")
+            return EMPTY_EXAMPLE
+        
         # Handle different test types
         if tests[0]["type"] == "function_call":
             # Function call tests
@@ -107,28 +126,27 @@ check_{fn_name}()
                     )
                 for future in as_completed(futures):
                     exec_succ, output, stdin, stdout = future.result()
-                    pass_test = exec_succ and fuzzy_equal(output.strip(), stdout.strip(), verbose=False)
+                    pass_test = exec_succ and fuzzy_equal(output.strip(), stdout.strip(), verbose=verbose)
                     if not pass_test:
                         print(f"Test code failed for example {idx}")
-                        print(f"Input: {stdin}")
-                        print(f"Expected output: {stdout}")
-                        print(f"Actual output: {output}")
+                        if verbose:
+                            print(f"Input: {stdin}")
+                            print(f"Expected output: {stdout}")
+                            print(f"Actual output: {output}")
                         return EMPTY_EXAMPLE
             
             oracle = json.dumps({"inputs": stdin_list, "outputs": stdout_list})
         else:
             print(f"Unknown test type: {tests[0]['type']} for example {idx}")
-            return EMPTY_EXAMPLE
-        
-        # Format the prompt according to the specified style
-        raw_prompt = build_zero_style_prompt(prompt=prompt)
+            return EMPTY_EXAMPLE       
         
         data = {
             "data_source": data_source,
-            "prompt": [],
-            "raw_prompt": raw_prompt,
+            "prompt": [
+                {"role": "user", "content": prompt}
+            ],
             "ability": "codegen",
-            "apply_chat_template": False,
+            "apply_chat_template": True,
             "reward_model": {
                 "style": "rule",
                 "ground_truth": oracle,
@@ -137,7 +155,7 @@ check_{fn_name}()
                 "split": split,
                 "index": idx,
                 "reference": solution,
-                "prompt": prompt,
+                "original_prompt": prompt,
                 "dataset": "PrimeIntellect",
                 "function_name": fn_name if tests[0]["type"] == "function_call" else None,
             },
@@ -162,9 +180,8 @@ if __name__ == '__main__':
                         help='Name of the dataset.')
     parser.add_argument('--train-sample-size', type=int, default=None,
                         help='Number of samples to use from training dataset. If None, use all samples.')
-    parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
-                        help='Prompt style to use (currently only zero_style supported).')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    parser.add_argument('--verbose', type=bool, default=False, help='Whether to print verbose output.')
 
     args = parser.parse_args()
 
@@ -179,7 +196,7 @@ if __name__ == '__main__':
     dataset, _ = get_datasets(cache_dir)
 
     # Process the dataset
-    process_fn = make_map_fn('train', data_source, args.prompt_style)
+    process_fn = make_map_fn('train', data_source, args.verbose)
         
     dataset = dataset.map(function=process_fn, with_indices=True, num_proc=64)
 

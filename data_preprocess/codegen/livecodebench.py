@@ -7,10 +7,8 @@ import transformers
 import datasets
 from datasets import load_dataset, Dataset
 
-from verl.utils.data_process.prompt import build_zero_style_prompt
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 from verl.utils.data_process.filter import LengthFilter
-from verl.utils.reward_score.coder1 import code_exec
 
 
 def get_datasets(cache_dir: str):
@@ -27,14 +25,11 @@ def get_datasets(cache_dir: str):
         return None, None
 
 
-def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") -> callable:
+def make_map_fn(split: str, data_source: str) -> callable:
     def process_fn(example, idx):
         # Get the problem description
         problem_desc = example["problem"]
         starter_code = example["starter_code"]
-        
-        # Create the prompt with the starter code 
-        prompt = f"{problem_desc}\n\nComplete the implementation using the provided starter code:\n```python\n{starter_code}\n```\n\nYour solution should implement the method(s) in the Solution class."
         
         # Process tests
         try:
@@ -43,7 +38,6 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
                 return {
                     "data_source": None,
                     "prompt": None,
-                    "raw_prompt": None,
                     "ability": None,
                     "reward_model": None,
                     "extra_info": None
@@ -64,6 +58,20 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style") ->
                         "reward_model": None,
                         "extra_info": None
                     }
+                
+                # create the prompt with the starter code 
+                # prompt adopted from livecodebench official implementation
+                # https://github.com/LiveCodeBench/LiveCodeBench/blob/main/lcb_runner/prompts/code_generation.py
+                prompt = f"""You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests.
+
+Below is the question:
+
+{problem_desc}
+
+You will use the following starter code to write the solution to the problem and enclose your code within delimiters.
+```python
+{starter_code}
+```"""
                 
                 # Function call tests
                 test_code = f"""\
@@ -87,6 +95,17 @@ check_{function_name}()
                 oracle = json.dumps({"functional": test_code})
                 
             elif tests[0]["testtype"] == "stdin":
+                # create the prompt, and there will be no starter code
+                # prompt adopted from livecodebench official implementation
+                # https://github.com/LiveCodeBench/LiveCodeBench/blob/main/lcb_runner/prompts/code_generation.py
+                prompt = f"""You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests.
+
+Below is the question:
+
+{problem_desc}
+
+Read the inputs from stdin solve the problem and write the answer to stdout (do not directly test on the sample inputs). Enclose your code within delimiters. Ensure that when the python program runs, it reads the inputs, runs the algorithm and writes output to STDOUT."""
+                
                 # STDIN/STDOUT tests
                 stdin_list = []
                 stdout_list = []
@@ -102,21 +121,18 @@ check_{function_name}()
             return {
                 "data_source": None,
                 "prompt": None,
-                "raw_prompt": None,
                 "ability": None,
                 "reward_model": None,
                 "extra_info": None
             }
-        
-        # Format the prompt according to the specified style
-        raw_prompt = build_zero_style_prompt(prompt=prompt)
-        
+
         data = {
             "data_source": data_source,
-            "prompt": [],
-            "raw_prompt": raw_prompt,
+            "prompt": [
+                {"role": "user", "content": prompt}
+            ],
             "ability": "codegen",
-            "apply_chat_template": False,
+            "apply_chat_template": True,
             "reward_model": {
                 "style": "rule",
                 "ground_truth": oracle,
@@ -127,6 +143,7 @@ check_{function_name}()
                 "reference": "",  # No solution data in LiveCodeBench
                 "dataset": "LiveCodeBench",
                 "function_name": function_name if "function_name" in locals() else None,
+                "original_prompt": prompt,
             },
         }
         
@@ -152,8 +169,6 @@ if __name__ == '__main__':
                         help='Number of samples to use from training dataset. If None, use all samples.')
     parser.add_argument('--test-sample-size', type=int, default=None,
                         help='Number of samples to use from test dataset. If None, use all samples.')
-    parser.add_argument('--prompt-style', type=str, choices=['zero_style'], default='zero_style',
-                        help='Prompt style to use (currently only zero_style supported).')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 
     args = parser.parse_args()
@@ -171,8 +186,8 @@ if __name__ == '__main__':
     train_dataset, test_dataset = get_datasets(cache_dir)
 
     # Process the dataset
-    process_train_fn = make_map_fn('train', data_source, args.prompt_style)
-    process_test_fn = make_map_fn('test', data_source, args.prompt_style)
+    process_train_fn = make_map_fn('train', data_source)
+    process_test_fn = make_map_fn('test', data_source)
     
     train_dataset = train_dataset.map(function=process_train_fn, with_indices=True, num_proc=64)
     test_dataset = test_dataset.map(function=process_test_fn, with_indices=True, num_proc=64)
