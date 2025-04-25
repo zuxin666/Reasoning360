@@ -50,9 +50,9 @@ def remote_check_stdio(code, stdin, stdout):
     return succ, output, stdin, stdout
 
 
-def validate_response_structure(processed_str: str) -> bool:
-    pattern = re.compile(r".*</think>.*", re.DOTALL)
-    return bool(pattern.search(processed_str.strip()))
+# def validate_response_structure(processed_str: str) -> bool:
+#     pattern = re.compile(r".*</think>.*", re.DOTALL)
+#     return bool(pattern.search(processed_str.strip()))
 
 
 def try_extract_solution(solution_str: str) -> str:
@@ -169,7 +169,7 @@ def _compute_score(
     reward_log = []
 
     # ground_truth is not code, but tests
-    pass_fmt = validate_response_structure(solution_str)
+    # pass_fmt = validate_response_structure(solution_str)
     solution_code = extract_code_from_string(solution_str)
 
     # NameError: name 'List' is not defined. Did you mean: 'list'?
@@ -177,7 +177,8 @@ def _compute_score(
     # reference solutions fail due to imports not being present
 
     if (
-        not pass_fmt or len(solution_code) == 0
+        # not pass_fmt or len(solution_code) == 0
+        len(solution_code) == 0
     ):  # only print full output when there is an error
         reward_log.append("-" * 16 + "Bad format detected!" + "-" * 16)
         reward_log.append("-" * 16 + "Original Model Output" + "-" * 16)
@@ -221,7 +222,7 @@ def _compute_score(
             )
             reward_log.append(output[:_MAX_CHAR_DISPLAY])
             reward_log.append("-" * 16 + "Failed Prompt" + "-" * 16)
-            reward_log.append(extra_info["prompt"].replace("\n\n", "\n"))
+            reward_log.append(extra_info["original_prompt"].replace("\n\n", "\n"))
             return format_reward, "\n".join(reward_log)
     elif "inputs" in ground_truth and "outputs" in ground_truth:
         stdin_list: str = ground_truth["inputs"]
@@ -251,7 +252,7 @@ def _compute_score(
                         f"❌Actual: {output if output.startswith(_ERROR_MSG_PREFIX) else repr(output.strip())}"
                     )
                     reward_log.append("-" * 16 + "Failed Prompt" + "-" * 16)
-                    reward_log.append(extra_info["prompt"].replace("\n\n", "\n"))
+                    reward_log.append(extra_info["original_prompt"].replace("\n\n", "\n"))
                     return format_reward, "\n".join(reward_log)
     else:
         raise ValueError(

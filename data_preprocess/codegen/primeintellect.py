@@ -79,23 +79,31 @@ def make_map_fn(split: str, data_source: str, verbose: bool) -> callable:
         if tests[0]["type"] == "function_call":
             # Function call tests
             fn_name = tests[0]["fn_name"]
-            test_code = f"""\
-def check_{fn_name}():
-"""
+
+            inputs = []
+            outputs = []
             for test in tests:
-                input_args = ", ".join([
-                    repr(arg) if isinstance(arg, (str, list, tuple, dict)) else str(arg)
-                    for arg in test["input"]
-                ])
-                expected_output = repr(test["output"][0]) if isinstance(test["output"][0], (str, list, tuple, dict)) else test["output"][0]
-                test_code += f"""    assert {fn_name}({input_args}) == {expected_output}
-"""
-            test_code += f"""
-check_{fn_name}()
+                inputs.append(test["input"])
+                outputs.append(test["output"])
+            
+            test_code = f"""\
+_inputs = {inputs}
+_outputs = {outputs}
+import math
+def _deep_eq(a, b, tol=1e-5):
+    if isinstance(a, float) or isinstance(b, float):
+        return math.isclose(a, b, rel_tol=tol, abs_tol=tol)
+    if isinstance(a, (list, tuple)):
+        if len(a) != len(b): return False
+        return all(_deep_eq(x, y, tol) for x, y in zip(a, b))
+    return a == b
+
+for i, o in zip(_inputs, _outputs):
+    assert _deep_eq({fn_name}(*i), o[0] if len(o) == 1 else tuple(o))
 """
             
             # Validate the solution
-            full_code = f"{solution}\n{test_code}"
+            full_code = f"{solution}\n{test_code}"        
             succ, err = code_exec(full_code)
             if not succ:
                 print(f"Test code failed for example {idx}")

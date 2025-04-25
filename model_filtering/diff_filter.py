@@ -4,9 +4,9 @@ import os
 import sys
 import signal
 import multiprocessing
-from multiprocessing import Process
-from functools import partial
+from multiprocessing import Process, Pool
 import pickle
+import time
 
 import torch
 from datasets import Dataset
@@ -24,6 +24,15 @@ class DifficultyFilterPipeline:
         self.tokenizer = None
         self.model = None
         self.sampling_params = None
+        
+        # Initialize the process pool for reward computation
+        self.reward_pool = Pool(processes=args.reward_workers) if args.reward_workers > 1 else None
+
+    def __del__(self):
+        # Clean up the process pool
+        if self.reward_pool:
+            self.reward_pool.close()
+            self.reward_pool.join()
 
     def initialize_components(self):
         """Initialize model, tokenizer and sampling parameters"""
@@ -95,6 +104,93 @@ class DifficultyFilterPipeline:
                 print(f"Error loading checkpoint: {e}. Starting from the beginning.")
         return {"current_batch_idx": 0, "global_results": {}, "global_errors": {}}
 
+    def extract_messages(self, batch_dict, index):
+        """Extract messages from batch_dict for a specific index"""
+        messages = []
+        if "prompt" in batch_dict:
+            for prompt_dict in batch_dict["prompt"]:
+                # Extract the index-th role and content from each dictionary
+                if index < len(prompt_dict["role"]) and index < len(prompt_dict["content"]):
+                    messages.append({
+                        "role": prompt_dict["role"][index],
+                        "content": prompt_dict["content"][index]
+                    })
+        return messages
+
+    @staticmethod
+    def compute_single_reward(args):
+        """Helper method to compute reward for a single response"""
+        response, data_source, ground_truth, extra_info = args
+        try:
+            score = _default_compute_score(
+                data_source=data_source,
+                solution_str=response,
+                ground_truth=ground_truth,
+                extra_info=extra_info
+            )
+            return {"score": score}
+        except Exception as e:
+            return {"score": 0.0, "error": str(e)}
+
+    def process_batch_outputs(self, outputs, batch_dict):
+        """Process model outputs for a batch using parallel reward computation"""
+        batch_results = {}
+        
+        reward_start_time = time.time()
+        
+        for i in range(len(outputs)):
+            responses = [response.text for response in outputs[i].outputs]
+            
+            data_source = batch_dict["data_source"][i]
+            ground_truth = batch_dict["reward_model"]["ground_truth"][i]
+            
+            # Extract question from messages
+            messages = self.extract_messages(batch_dict, i)
+            question = "No question found"
+            for message in messages:
+                if message["role"] == "user":
+                    question = message["content"]
+                    break
+            
+            try:
+                # Prepare arguments for parallel processing
+                extra_info = {key: batch_dict["extra_info"][key][i] for key in batch_dict["extra_info"]}
+                compute_args = [(response, data_source, ground_truth, extra_info) for response in responses]
+                
+                # Compute scores in parallel if reward_workers > 1
+                if self.reward_pool:
+                    detailed_scores = self.reward_pool.map(self.compute_single_reward, compute_args)
+                else:
+                    detailed_scores = [self.compute_single_reward(args) for args in compute_args]
+                
+                scores = [score_dict["score"] for score_dict in detailed_scores]
+                
+                # Calculate how many responses meet the threshold
+                pass_count = sum(1 for score in scores if score >= self.args.correct_reward_threshold)
+                
+            except Exception as e:
+                print(f"Error computing scores: {e}")
+                scores = [0.0] * len(responses)
+                detailed_scores = [{"score": 0.0, "error": str(e)}] * len(responses)
+                pass_count = 0
+            
+            # Format the batch results
+            batch_results[i] = {
+                "messages": messages,
+                "question": question,
+                "ground_truth": ground_truth,
+                "source": data_source,
+                "responses": responses,
+                "scores": scores,
+                "detailed_scores": detailed_scores,
+                "pass_rate": pass_count / len(responses) if responses else 0,
+            }
+        
+        reward_time = time.time() - reward_start_time
+        print(f"Reward computation took {reward_time:.2f} seconds")
+            
+        return batch_results
+
     def run_inference(self):
         """Main pipeline execution"""
         self.initialize_components()
@@ -133,15 +229,14 @@ class DifficultyFilterPipeline:
         for idx, batch_dict in enumerate(batch_iterator, start=start_batch_idx):
             if self.args.debug:
                 print(f"Processing batch {idx}...")
-                print(batch_dict)
             
             batch_size = len(batch_dict["reward_model"])
             model_inputs = []
-            for i, apply_template in enumerate(batch_dict.get("apply_chat_template", [False] * batch_size)):
+            for i, apply_template in enumerate(batch_dict.get("apply_chat_template", [True] * batch_size)):
                 if apply_template:
                     # Use the chat template prompt if specified
-                    prompt = batch_dict["prompt"][i]
-                    model_inputs.append({"prompt": self.tokenizer.apply_chat_template(prompt, tokenize=False)})
+                    messages = self.extract_messages(batch_dict, i)
+                    model_inputs.append(messages)
                 else:
                     # Use the raw prompt
                     raw_prompt = batch_dict["raw_prompt"][i]
@@ -150,12 +245,14 @@ class DifficultyFilterPipeline:
             keys = batch_dict.keys()
             
             print(f"Generating for batch {idx}...")
-            outputs = self.model.generate(
+            gen_start_time = time.time()
+            outputs = self.model.chat(
                 model_inputs, 
                 sampling_params=self.sampling_params,
                 use_tqdm=False
             )
-            print(f"Done Generating for batch {idx}!")
+            gen_time = time.time() - gen_start_time
+            print(f"Generation took {gen_time:.2f} seconds")
 
             batch_results = self.process_batch_outputs(outputs, batch_dict)
 
@@ -194,55 +291,6 @@ class DifficultyFilterPipeline:
         
         print(f"Completed processing {total_batches} batches. Final results saved to {final_results_path}")
         return global_results
-
-    def process_batch_outputs(self, outputs, batch_dict):
-        """Process model outputs for a batch using simple reward computation"""
-        batch_results = {}
-        
-        for i in range(len(outputs)):
-            responses = [response.text for response in outputs[i].outputs]
-            
-            data_source = batch_dict["data_source"][i]
-            ground_truth = batch_dict["reward_model"]["ground_truth"][i]
-            question = batch_dict["raw_prompt"][i]
-            
-            try:
-                # Compute scores directly using _default_compute_score
-                scores = []
-                detailed_scores = []
-                
-                for response in responses:
-                    
-                    score = _default_compute_score(
-                        data_source=data_source,
-                        solution_str=response,
-                        ground_truth=ground_truth,
-                        extra_info={key: batch_dict["extra_info"][key][i] for key in batch_dict["extra_info"]}
-                    )
-                    scores.append(score)
-                    detailed_scores.append({"score": score})
-                
-                # Calculate how many responses meet the threshold
-                pass_count = sum(1 for score in scores if score >= self.args.correct_reward_threshold)
-                
-            except Exception as e:
-                print(f"Error computing scores: {e}")
-                scores = [0.0] * len(responses)
-                detailed_scores = [{"score": 0.0, "error": str(e)}] * len(responses)
-                pass_count = 0
-            
-            # Format the batch results
-            batch_results[i] = {
-                "question": question,
-                "ground_truth": ground_truth,
-                "source": data_source,
-                "responses": responses,
-                "scores": scores,
-                "detailed_scores": detailed_scores,
-                "pass_rate": pass_count / len(responses) if responses else 0,
-            }
-            
-        return batch_results
 
     @staticmethod
     def _log_error(log_file, message):
@@ -305,7 +353,7 @@ def main():
     parser.add_argument("--repetition_penalty", type=float, default=1.0, help="Repetition penalty")  # 1.0 means no repetition penalty
     parser.add_argument("--checkpoint_freq", type=int, default=5, help="Frequency to save checkpoints (in batches)")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode (uses small dataset subset)")
-    
+    parser.add_argument("--reward_workers", type=int, default=16, help="Number of worker processes for parallel reward computation")
     # Data parallelism / multi-node arguments
     parser.add_argument("--dp_size", type=int, default=1, help="Data parallel size")
     parser.add_argument("--tp_size", type=int, default=1, help="Tensor parallel size")
@@ -313,6 +361,8 @@ def main():
     parser.add_argument("--node_rank", type=int, default=0, help="Rank of the current node")
     parser.add_argument("--master_addr", type=str, default="127.0.0.1", help="Master node IP address")
     parser.add_argument("--master_port", type=int, default=0, help="Master node port")
+
+
     
     args = parser.parse_args()
 
@@ -364,4 +414,4 @@ if __name__ == "__main__":
     main()
     
     # example:
-    # python diff_filter.py --model_path "/lustrefs/users/shibo.hao/hf_models/Qwen2.5-3B-Instruct" --dataset_parquet_path "/lustrefs/users/shibo.hao/Reasoning360/data/train/math__bigmath_filtered_mar21_10k.parquet" --output_dir "./diff_filter_output" --prompt_key "prompt" --max_prompt_length 2048 --truncation "left" --checkpoint_freq 5 --debug --dp_size 1 --tp_size 1 --node_size 1 --node_rank 0 --master_addr "127.0.0.1" --master_port 0
+    # python model_filtering/diff_filter.py --model_path "Qwen/Qwen2.5-7B-Instruct" --dataset_parquet_path "data/train/codegen_mbpp_374.parquet" --output_dir "./diff_filter_output" --prompt_key "prompt" --max_prompt_length 2048 --truncation "left" --checkpoint_freq 5 --debug --dp_size 1 --tp_size 1 --node_size 1 --node_rank 0 --master_addr "127.0.0.1" --master_port 0 --batch_size 128 --reward_workers 64

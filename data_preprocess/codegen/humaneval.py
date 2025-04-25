@@ -38,7 +38,13 @@ def make_map_fn(split: str, data_source: str) -> callable:
         
         # Extract task ID and prompt
         task_id = example["task_id"]
-        prompt = example["prompt"]
+
+        prompt = (
+            "Write a complete, self-contained Python solution to the following problem. "
+            "Your solution must include all necessary imports and the full function definition including "
+            "the signature exactly as specified. Do not modify the function signature or docstring.\n\n"
+            f"```python\n{example['prompt'].strip()}\n```"
+        )
         
         # Extract test function, entry point, and canonical solution
         test_code = example["test"]
