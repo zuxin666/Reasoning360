@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import json
 import os
@@ -7,43 +8,97 @@ import multiprocessing
 from multiprocessing import Process, Pool
 import pickle
 import time
+from datetime import datetime, timedelta
 
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import numpy as np
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 from vllm.utils import get_open_port
+from rich.console import Console
+from rich.theme import Theme
+from rich.panel import Panel
 
 from verl.utils.reward_score import _default_compute_score
 
+
+# --------------------------------------------------------------------------- #
+# Helper: make *anything* JSON-serialisable                                   #
+# --------------------------------------------------------------------------- #
+def json_default(obj):
+    """Fallback encoder for json.dump."""
+    if isinstance(obj, torch.Tensor):
+        return obj.item() if obj.dim() == 0 else obj.tolist()
+    if isinstance(obj, (np.ndarray, np.generic)):
+        return obj.item() if np.ndim(obj) == 0 else obj.tolist()
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"{type(obj).__name__} is not JSON serialisable")
+
+
+# --------------------------------------------------------------------------- #
+# Rich console setup                                                          #
+# --------------------------------------------------------------------------- #
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "success": "green",
+        "warning": "yellow",
+        "error": "bold red",
+        "highlight": "bold magenta",
+        "metric": "bold cyan",
+        "time": "bold blue",
+    }
+)
+console = Console(theme=custom_theme)
+
+
+# --------------------------------------------------------------------------- #
+# Main pipeline class                                                         #
+# --------------------------------------------------------------------------- #
 class DifficultyFilterPipeline:
     def __init__(self, args):
         self.args = args
         self.tokenizer = None
         self.model = None
         self.sampling_params = None
-        
-        # Initialize the process pool for reward computation
+
+        # Parallel reward workers
         self.reward_pool = Pool(processes=args.reward_workers) if args.reward_workers > 1 else None
 
+        # Timing
+        self.start_time = time.time()
+        self.gen_times = []
+        self.reward_times = []
+
+    # ------------- misc helpers -------------------------------------------- #
     def __del__(self):
-        # Clean up the process pool
         if self.reward_pool:
             self.reward_pool.close()
             self.reward_pool.join()
 
+    @staticmethod
+    def format_time(seconds):
+        return str(timedelta(seconds=int(seconds)))
+
+    # ------------- component init ------------------------------------------ #
     def initialize_components(self):
-        """Initialize model, tokenizer and sampling parameters"""
+        console.print(f"🔄 Loading tokenizer from [highlight]{self.args.model_path}[/highlight]...")
         self.tokenizer = AutoTokenizer.from_pretrained(self.args.model_path)
-        
+
+        console.print(
+            f"🚀 Initializing model from [highlight]{self.args.model_path}[/highlight] "
+            f"with TP={self.args.tp_size}..."
+        )
         self.model = LLM(
-            self.args.model_path, 
+            self.args.model_path,
             tensor_parallel_size=self.args.tp_size,
             enforce_eager=True,
         )
-        
+
         self.sampling_params = SamplingParams(
             n=self.args.n,
             max_tokens=self.args.max_new_tokens,
@@ -53,128 +108,159 @@ class DifficultyFilterPipeline:
             repetition_penalty=self.args.repetition_penalty,
             skip_special_tokens=True,
         )
+        console.print("✅ Model initialization [success]complete[/success].")
 
+    # ------------- dataset -------------------------------------------------- #
     def prepare_dataset(self):
-        """Load and prepare dataset for inference"""
-        # Load parquet file directly using datasets library
+        console.print(f"📂 Loading dataset from [highlight]{self.args.dataset_parquet_path}[/highlight]...")
         dataset = Dataset.from_parquet(self.args.dataset_parquet_path)
-        
+
+        # ── debug slice
         if self.args.debug:
             dataset = dataset.select(range(min(48, len(dataset))))
-            print(f"[DEBUG] Using first {min(48, len(dataset))} samples for testing")
-        
-        # Handle data parallelism
+            console.print(f"🐞 [DEBUG] Using first [highlight]{len(dataset)}[/highlight] samples")
+
+        # ── DP split
         if self.args.dp_size > 1:
             total = len(dataset)
             per_rank = total // self.args.dp_size
             start = self.args.dp_rank * per_rank
             end = start + per_rank if self.args.dp_rank != self.args.dp_size - 1 else total
             dataset = dataset.select(range(start, end))
-            print(f"DP rank {self.args.dp_rank} processing {len(dataset)} samples out of {total}")
-        
+            console.print(
+                f"🔢 DP rank [highlight]{self.args.dp_rank}[/highlight] "
+                f"processing [highlight]{len(dataset)}[/highlight] / {total}"
+            )
+        else:
+            console.print(f"📊 Dataset loaded with [highlight]{len(dataset)}[/highlight] samples")
+
+        # ── KEEP-ONLY columns actually referenced downstream ---------------- #
+        required_cols = {
+            "prompt",
+            "reward_model",
+            "apply_chat_template",
+            "data_source",
+            "extra_info",
+        }
+        cols_to_drop = [c for c in dataset.column_names if c not in required_cols]
+        if cols_to_drop:
+            dataset = dataset.remove_columns(cols_to_drop)
+            console.print(f"🧹 Dropped {len(cols_to_drop)} column(s) for easier processing: {', '.join(cols_to_drop)}")
+
         return dataset
 
+    # ------------- checkpoint paths / I-O ------------------------------ #
     def get_checkpoint_path(self):
-        """Get the path for the checkpoint file"""
-        rank_output_dir = os.path.join(self.args.output_dir, f"dp{self.args.dp_rank}")
+        model_name = self.args.model_path.split("/")[-1]
+        dataset_name = os.path.basename(self.args.dataset_parquet_path).rsplit(".parquet", 1)[0]
+        rank_output_dir = os.path.join(self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}")
+        os.makedirs(rank_output_dir, exist_ok=True)
         return os.path.join(rank_output_dir, "checkpoint.pkl")
 
     def save_checkpoint(self, current_batch_idx, global_results, global_errors):
-        """Save checkpoint for resuming later"""
         checkpoint_path = self.get_checkpoint_path()
         checkpoint_data = {
             "current_batch_idx": current_batch_idx,
             "global_results": global_results,
-            "global_errors": global_errors
+            "global_errors": global_errors,
+            "metadata": {
+                "model_path": self.args.model_path,
+                "dataset_path": self.args.dataset_parquet_path,
+                "timestamp": datetime.now().isoformat(),
+                "args": {
+                    "n": self.args.n,
+                    "max_new_tokens": self.args.max_new_tokens,
+                    "temperature": self.args.temperature,
+                    "top_p": self.args.top_p,
+                    "top_k": self.args.top_k,
+                    "batch_size": self.args.batch_size,
+                },
+            },
         }
         with open(checkpoint_path, "wb") as f:
             pickle.dump(checkpoint_data, f)
-        print(f"Checkpoint saved at batch {current_batch_idx} to {checkpoint_path}")
+        console.print(f"💾 Checkpoint saved at batch {current_batch_idx} → {checkpoint_path}")
 
     def load_checkpoint(self):
-        """Load checkpoint if it exists"""
         checkpoint_path = self.get_checkpoint_path()
-        if os.path.exists(checkpoint_path):
-            try:
-                with open(checkpoint_path, "rb") as f:
-                    checkpoint_data = pickle.load(f)
-                print(f"Resuming from checkpoint at batch {checkpoint_data['current_batch_idx']}")
-                return checkpoint_data
-            except Exception as e:
-                print(f"Error loading checkpoint: {e}. Starting from the beginning.")
-        return {"current_batch_idx": 0, "global_results": {}, "global_errors": {}}
+        if not os.path.exists(checkpoint_path):
+            return {"current_batch_idx": 0, "global_results": {}, "global_errors": {}}
 
+        try:
+            with open(checkpoint_path, "rb") as f:
+                checkpoint_data = pickle.load(f)
+            if "metadata" not in checkpoint_data:
+                console.print(
+                    f"⚠️ [warning]Old checkpoint format detected – continuing anyway.[/warning]"
+                )
+                return {
+                    "current_batch_idx": checkpoint_data.get("current_batch_idx", 0),
+                    "global_results": checkpoint_data.get("global_results", {}),
+                    "global_errors": checkpoint_data.get("global_errors", {}),
+                }
+            meta = checkpoint_data["metadata"]
+            if (
+                meta.get("model_path") != self.args.model_path
+                or meta.get("dataset_path") != self.args.dataset_parquet_path
+            ):
+                console.print("⚠️ [warning]Checkpoint model/dataset mismatch – starting fresh.[/warning]")
+                return {"current_batch_idx": 0, "global_results": {}, "global_errors": {}}
+            console.print(f"📋 Resuming from checkpoint batch {checkpoint_data['current_batch_idx']}")
+            return checkpoint_data
+        except Exception as e:
+            console.print(f"⚠️ [warning]Failed to load checkpoint: {e} – starting fresh.[/warning]")
+            return {"current_batch_idx": 0, "global_results": {}, "global_errors": {}}
+
+    # ------------- message helpers ----------------------------------------- #
     def extract_messages(self, batch_dict, index):
-        """Extract messages from batch_dict for a specific index"""
-        messages = []
+        msgs = []
         if "prompt" in batch_dict:
             for prompt_dict in batch_dict["prompt"]:
-                # Extract the index-th role and content from each dictionary
                 if index < len(prompt_dict["role"]) and index < len(prompt_dict["content"]):
-                    messages.append({
-                        "role": prompt_dict["role"][index],
-                        "content": prompt_dict["content"][index]
-                    })
-        return messages
+                    msgs.append(
+                        {
+                            "role": prompt_dict["role"][index],
+                            "content": prompt_dict["content"][index],
+                        }
+                    )
+        return msgs
 
+    # ------------- reward / batch processing  ------------------------------ #
     @staticmethod
     def compute_single_reward(args):
-        """Helper method to compute reward for a single response"""
         response, data_source, ground_truth, extra_info = args
         try:
             score = _default_compute_score(
                 data_source=data_source,
                 solution_str=response,
                 ground_truth=ground_truth,
-                extra_info=extra_info
+                extra_info=extra_info,
             )
             return {"score": score}
         except Exception as e:
             return {"score": 0.0, "error": str(e)}
 
     def process_batch_outputs(self, outputs, batch_dict):
-        """Process model outputs for a batch using parallel reward computation"""
         batch_results = {}
-        
-        reward_start_time = time.time()
-        
+        reward_start = time.time()
+
+        reward_pbar = tqdm(total=len(outputs), desc="💯 Computing rewards", leave=False, position=1)
         for i in range(len(outputs)):
-            responses = [response.text for response in outputs[i].outputs]
-            
+            responses = [r.text for r in outputs[i].outputs]
             data_source = batch_dict["data_source"][i]
             ground_truth = batch_dict["reward_model"]["ground_truth"][i]
-            
-            # Extract question from messages
             messages = self.extract_messages(batch_dict, i)
-            question = "No question found"
-            for message in messages:
-                if message["role"] == "user":
-                    question = message["content"]
-                    break
-            
-            try:
-                # Prepare arguments for parallel processing
-                extra_info = {key: batch_dict["extra_info"][key][i] for key in batch_dict["extra_info"]}
-                compute_args = [(response, data_source, ground_truth, extra_info) for response in responses]
-                
-                # Compute scores in parallel if reward_workers > 1
-                if self.reward_pool:
-                    detailed_scores = self.reward_pool.map(self.compute_single_reward, compute_args)
-                else:
-                    detailed_scores = [self.compute_single_reward(args) for args in compute_args]
-                
-                scores = [score_dict["score"] for score_dict in detailed_scores]
-                
-                # Calculate how many responses meet the threshold
-                pass_count = sum(1 for score in scores if score >= self.args.correct_reward_threshold)
-                
-            except Exception as e:
-                print(f"Error computing scores: {e}")
-                scores = [0.0] * len(responses)
-                detailed_scores = [{"score": 0.0, "error": str(e)}] * len(responses)
-                pass_count = 0
-            
-            # Format the batch results
+            question = next((m["content"] for m in messages if m["role"] == "user"), "No question found")
+            extra_info = {k: batch_dict["extra_info"][k][i] for k in batch_dict["extra_info"]}
+
+            compute_args = [(r, data_source, ground_truth, extra_info) for r in responses]
+            if self.reward_pool:
+                detailed = self.reward_pool.map(self.compute_single_reward, compute_args)
+            else:
+                detailed = [self.compute_single_reward(a) for a in compute_args]
+
+            scores = [d["score"] for d in detailed]
+            pass_cnt = sum(s >= self.args.correct_reward_threshold for s in scores)
             batch_results[i] = {
                 "messages": messages,
                 "question": question,
@@ -182,236 +268,280 @@ class DifficultyFilterPipeline:
                 "source": data_source,
                 "responses": responses,
                 "scores": scores,
-                "detailed_scores": detailed_scores,
-                "pass_rate": pass_count / len(responses) if responses else 0,
+                "detailed_scores": detailed,
+                "pass_rate": pass_cnt / len(responses) if responses else 0.0,
+                "extra_info": extra_info,
             }
-        
-        reward_time = time.time() - reward_start_time
-        print(f"Reward computation took {reward_time:.2f} seconds")
-            
+            reward_pbar.update(1)
+        reward_pbar.close()
+
+        self.reward_times.append(time.time() - reward_start)
         return batch_results
 
+    # ------------- progress ------------------------------------------------- #
+    def print_progress_stats(self, idx, total_batches):
+        elapsed = time.time() - self.start_time
+        eta = "calculating..."
+        if idx > 0 and self.gen_times and self.reward_times:
+            remain = total_batches - idx - 1
+            eta_batch = max(np.mean(self.gen_times[-10:]), np.mean(self.reward_times[-10:]))
+            eta = self.format_time(remain * eta_batch)
+
+        console.print()
+        console.print(
+            Panel(
+                f"[bold]Progress: [metric]{idx+1}/{total_batches}[/metric] "
+                f"({(idx+1)/total_batches*100:.1f}%)[/bold]",
+                title="📊 Summary",
+                border_style="cyan",
+            )
+        )
+        console.print(f"⏱️  Elapsed: [time]{self.format_time(elapsed)}[/time] | ETA: [time]{eta}[/time]")
+        if self.gen_times:
+            console.print(f"⚡ Generation avg (last 10): [metric]{np.mean(self.gen_times[-10:]):.2f}s[/metric]")
+        if self.reward_times:
+            console.print(f"🧮 Reward avg (last 10): [metric]{np.mean(self.reward_times[-10:]):.2f}s[/metric]")
+
+    # ------------- main loop ------------------------------------------------ #
     def run_inference(self):
-        """Main pipeline execution"""
         self.initialize_components()
         dataset = self.prepare_dataset()
-        
+
         dataloader = DataLoader(
             dataset,
             batch_size=self.args.batch_size,
             pin_memory=True,
-            num_workers=min(4, os.cpu_count() // self.args.dp_size),
-            prefetch_factor=8
+            num_workers=min(4, os.cpu_count() // max(1, self.args.dp_size)),
+            prefetch_factor=8,
         )
-        
-        # Load checkpoint if it exists
-        checkpoint_data = self.load_checkpoint()
-        start_batch_idx = checkpoint_data["current_batch_idx"]
-        global_results = checkpoint_data["global_results"]
-        global_errors = checkpoint_data["global_errors"]
-        
-        rank_output_dir = os.path.join(self.args.output_dir, f"dp{self.args.dp_rank}")
+
+        chk = self.load_checkpoint()
+        start_batch_idx = chk["current_batch_idx"]
+        global_results = chk["global_results"]
+        global_errors = chk["global_errors"]
+
+        model_name = self.args.model_path.split("/")[-1]
+        dataset_name = os.path.basename(self.args.dataset_parquet_path).split(".")[0]
+        rank_output_dir = os.path.join(self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}")
         os.makedirs(rank_output_dir, exist_ok=True)
 
-        # Setup progress tracking
-        total_batches = len(dataloader)
-        progress_bar = tqdm(total=total_batches, initial=start_batch_idx, desc=f"DP{self.args.dp_rank} Processing")
+        progress_bar = tqdm(
+            total=len(dataloader),
+            initial=start_batch_idx,
+            desc=f"🔄 DP{self.args.dp_rank} Processing",
+            position=0,
+        )
 
-        # Skip already processed batches
-        batch_iterator = iter(dataloader)
+        batch_iter = iter(dataloader)
         for _ in range(start_batch_idx):
             try:
-                next(batch_iterator)
+                next(batch_iter)
             except StopIteration:
-                print(f"Warning: Checkpoint index {start_batch_idx} exceeds dataset size {total_batches}")
+                console.print(f"⚠️ [warning]Checkpoint index {start_batch_idx} exceeds dataset size[/warning]")
                 break
 
-        for idx, batch_dict in enumerate(batch_iterator, start=start_batch_idx):
-            if self.args.debug:
-                print(f"Processing batch {idx}...")
-            
-            batch_size = len(batch_dict["reward_model"])
-            model_inputs = []
-            for i, apply_template in enumerate(batch_dict.get("apply_chat_template", [True] * batch_size)):
-                if apply_template:
-                    # Use the chat template prompt if specified
-                    messages = self.extract_messages(batch_dict, i)
-                    model_inputs.append(messages)
-                else:
-                    # Use the raw prompt
-                    raw_prompt = batch_dict["raw_prompt"][i]
-                    model_inputs.append({"prompt": raw_prompt})
+        for idx, batch_dict in enumerate(batch_iter, start=start_batch_idx):
+            batch_size = len(batch_dict["reward_model"]["ground_truth"])
+            console.print(f"\n🔄 Generating for batch {idx}/{len(dataloader)-1} ({batch_size} samples)…")
 
-            keys = batch_dict.keys()
-            
-            print(f"Generating for batch {idx}...")
-            gen_start_time = time.time()
+            # enforce apply_chat_template==True
+            if not all(batch_dict.get("apply_chat_template", [True] * batch_size)):
+                raise RuntimeError(
+                    "Encountered apply_chat_template=False but raw_prompt column is removed. "
+                    "Please ensure all samples set apply_chat_template=True."
+                )
+
+            gen_start = time.time()
             outputs = self.model.chat(
-                model_inputs, 
+                [self.extract_messages(batch_dict, i) for i in range(batch_size)],
                 sampling_params=self.sampling_params,
-                use_tqdm=False
+                use_tqdm=False,
             )
-            gen_time = time.time() - gen_start_time
-            print(f"Generation took {gen_time:.2f} seconds")
+            self.gen_times.append(time.time() - gen_start)
+            console.print(f"⏱️  Generation took [time]{self.gen_times[-1]:.2f}s[/time]")
 
             batch_results = self.process_batch_outputs(outputs, batch_dict)
+            avg_pass = np.mean([r["pass_rate"] for r in batch_results.values()])
+            console.print(f"✅ Average pass rate: [success]{avg_pass:.2f}[/success]")
 
-            for i, result in batch_results.items():
-                global_results[f"{idx}_{i}"] = result
-            
-            batch_output_path = os.path.join(rank_output_dir, f"batch_{idx:05d}.json")
-            with open(batch_output_path, "w") as f:
-                json.dump(batch_results, f, indent=2)
+            global_results.update({f"{idx}_{i}": r for i, r in batch_results.items()})
 
-            # Save error if it exists
-            if idx in global_errors:
-                batch_error_path = os.path.join(rank_output_dir, f"batch_{idx:05d}_error.json")
-                with open(batch_error_path, "w") as f:
-                    json.dump({idx: global_errors[idx]}, f, indent=2)
-            
-            # Save checkpoint every few batches for auto-resuming
+            batch_out = os.path.join(rank_output_dir, f"batch_{idx:05d}.json")
+            with open(batch_out, "w") as f:
+                json.dump(batch_results, f, indent=2, default=json_default)
+
             if idx % self.args.checkpoint_freq == 0:
                 self.save_checkpoint(idx + 1, global_results, global_errors)
-                
-            progress_bar.update(1)
 
+            self.print_progress_stats(idx, len(dataloader))
+            progress_bar.update(1)
+            console.rule(style="cyan")
 
         progress_bar.close()
-        
-        # Save final checkpoint
-        self.save_checkpoint(total_batches, global_results, global_errors)
-        
-        # Save consolidated results
-        final_results_path = os.path.join(rank_output_dir, "final_results.json")
-        with open(final_results_path, "w") as f:
-            json.dump({
-                "results": global_results,
-                "errors": global_errors
-            }, f, indent=2)
-        
-        print(f"Completed processing {total_batches} batches. Final results saved to {final_results_path}")
-        return global_results
+        elapsed_total = time.time() - self.start_time
 
-    @staticmethod
-    def _log_error(log_file, message):
-        with open(log_file, "a") as f:
-            f.write(f"{message}\n")
+        console.print()
+        console.print(Panel("[bold]Inference completed!", title="🏁 Finished", border_style="green"))
+        console.print(f"⏱️  Total time: [time]{self.format_time(elapsed_total)}[/time]")
 
+        self.save_checkpoint(len(dataloader), global_results, global_errors)
+
+        final_path = os.path.join(rank_output_dir, "final_results.json")
+        with open(final_path, "w") as f:
+            json.dump(
+                {
+                    "results": global_results,
+                    "errors": global_errors,
+                    "metrics": {
+                        "total_time": elapsed_total,
+                        "avg_gen_time": np.mean(self.gen_times) if self.gen_times else 0.0,
+                        "avg_reward_time": np.mean(self.reward_times) if self.reward_times else 0.0,
+                    },
+                },
+                f,
+                indent=2,
+                default=json_default,
+            )
+        console.print(f"💾 Final results saved to [highlight]{final_path}[/highlight]")
+
+
+# --------------------------------------------------------------------------- #
+# Data-parallel worker                                                        #
+# --------------------------------------------------------------------------- #
 def run_dp_worker(args, dp_rank, dp_size):
-    """Run data parallel worker process"""
-    # Set CUDA devices for this worker
     gpu_offset = dp_rank * args.tp_size
     os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(gpu_offset + i) for i in range(args.tp_size))
-    torch.cuda.set_device(0)  # Use first visible device
+    torch.cuda.set_device(0)
 
-    # Set vLLM environment variables
-    os.environ["VLLM_DP_RANK"] = str(dp_rank)
-    os.environ["VLLM_DP_RANK_LOCAL"] = str(dp_rank)
-    os.environ["VLLM_DP_SIZE"] = str(dp_size)
-    os.environ["VLLM_DP_MASTER_IP"] = args.master_addr
-    os.environ["VLLM_DP_MASTER_PORT"] = str(args.master_port)
-    os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
-    os.environ["VLLM_USE_TORCH_DIST"] = "1"
-    
-    print(f"[DP rank {dp_rank}] sees {torch.cuda.device_count()} visible GPU(s).")
+    os.environ.update(
+        {
+            "VLLM_DP_RANK": str(dp_rank),
+            "VLLM_DP_RANK_LOCAL": str(dp_rank),
+            "VLLM_DP_SIZE": str(dp_size),
+            "VLLM_DP_MASTER_IP": args.master_addr,
+            "VLLM_DP_MASTER_PORT": str(args.master_port),
+            "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
+            "VLLM_USE_TORCH_DIST": "1",
+        }
+    )
+    console.print(f"[DP rank {dp_rank}] sees {torch.cuda.device_count()} visible GPU(s).")
 
-    # Update args with DP rank info
     args.dp_rank = dp_rank
     args.dp_size = dp_size
-    
-    # Run inference pipeline
-    pipeline = DifficultyFilterPipeline(args)
-    pipeline.run_inference()
 
+    console.rule(f"[bold]Worker Configuration DP {dp_rank}/{dp_size-1}", style="cyan")
+    console.print(
+        Panel(
+            f"[bold]Model:[/bold] {args.model_path}\n"
+            f"[bold]Dataset:[/bold] {args.dataset_parquet_path}\n"
+            f"[bold]Batch size:[/bold] {args.batch_size}\n"
+            f"[bold]Generations:[/bold] {args.n}\n"
+            f"[bold]Max tokens:[/bold] {args.max_new_tokens}\n"
+            f"[bold]Reward workers:[/bold] {args.reward_workers}\n"
+            f"[bold]Tensor parallel:[/bold] {args.tp_size}",
+            title="📋 Configuration",
+            border_style="cyan",
+        )
+    )
+
+    DifficultyFilterPipeline(args).run_inference()
+
+
+# --------------------------------------------------------------------------- #
+# CLI / launcher                                                              #
+# --------------------------------------------------------------------------- #
 def main():
-    """Main entry point"""
-    def handle_signal(signum, frame):
-        print(f"\nReceived signal {signum}, shutting down gracefully...")
+    def handle_signal(signum, _):
+        console.print(f"\n⚠️ [warning]Received signal {signum}, shutting down…[/warning]")
         sys.exit(1)
-        
+
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
-    
+
     parser = argparse.ArgumentParser(description="Difficulty filtering using verl reward functions")
-    parser.add_argument("--model_path", type=str, required=True, help="Path to the model")
-    parser.add_argument("--dataset_parquet_path", type=str, required=True, help="Path to the dataset parquet file")
-    parser.add_argument("--output_dir", type=str, default="./diff_filter_output", help="Output directory")
-    parser.add_argument("--prompt_key", type=str, default="prompt", help="Key for prompt in the dataset")
-    parser.add_argument("--max_prompt_length", type=int, default=2048, help="Maximum prompt length")
-    parser.add_argument("--truncation", type=str, default="error", choices=["left", "right", "error"], 
-                       help="How to handle prompts exceeding max_prompt_length")
-    parser.add_argument("--default_data_source", type=str, default="None", 
-                       help="Default data source for reward function")
-    parser.add_argument("--correct_reward_threshold", type=float, default=1.0, 
-                       help="Threshold for considering an answer correct")
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size for inference")
-    parser.add_argument("--n", type=int, default=16, help="Number of generations per prompt")
-    parser.add_argument("--max_new_tokens", type=int, default=2048, help="Maximum number of new tokens to generate")
-    parser.add_argument("--top_k", type=int, default=100, help="Top-k sampling parameter")
-    parser.add_argument("--top_p", type=float, default=0.9, help="Top-p sampling parameter")
-    parser.add_argument("--temperature", type=float, default=1.0, help="Temperature for sampling")
-    parser.add_argument("--repetition_penalty", type=float, default=1.0, help="Repetition penalty")  # 1.0 means no repetition penalty
-    parser.add_argument("--checkpoint_freq", type=int, default=5, help="Frequency to save checkpoints (in batches)")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode (uses small dataset subset)")
-    parser.add_argument("--reward_workers", type=int, default=16, help="Number of worker processes for parallel reward computation")
-    # Data parallelism / multi-node arguments
-    parser.add_argument("--dp_size", type=int, default=1, help="Data parallel size")
-    parser.add_argument("--tp_size", type=int, default=1, help="Tensor parallel size")
-    parser.add_argument("--node_size", type=int, default=1, help="Total number of nodes")
-    parser.add_argument("--node_rank", type=int, default=0, help="Rank of the current node")
-    parser.add_argument("--master_addr", type=str, default="127.0.0.1", help="Master node IP address")
-    parser.add_argument("--master_port", type=int, default=0, help="Master node port")
+    parser.add_argument("--model_path", type=str, required=True)
+    parser.add_argument("--dataset_parquet_path", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, default="./diff_filter_output")
 
+    parser.add_argument("--max_prompt_length", type=int, default=2048)
+    parser.add_argument(
+        "--truncation", type=str, default="error", choices=["left", "right", "error"]
+    )
+    parser.add_argument("--default_data_source", type=str, default="None")
+    parser.add_argument("--correct_reward_threshold", type=float, default=1.0)
 
-    
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--n", type=int, default=16)
+    parser.add_argument("--max_new_tokens", type=int, default=2048)
+    parser.add_argument("--top_k", type=int, default=100)
+    parser.add_argument("--top_p", type=float, default=0.9)
+    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--repetition_penalty", type=float, default=1.0)
+
+    parser.add_argument("--checkpoint_freq", type=int, default=5)
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--reward_workers", type=int, default=16)
+
+    parser.add_argument("--dp_size", type=int, default=1)
+    parser.add_argument("--tp_size", type=int, default=1)
+    parser.add_argument("--node_size", type=int, default=1)
+    parser.add_argument("--node_rank", type=int, default=0)
+    parser.add_argument("--master_addr", type=str, default="127.0.0.1")
+    parser.add_argument("--master_port", type=int, default=0)
+
     args = parser.parse_args()
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    console.rule("[bold]Difficulty Filter Pipeline", style="cyan")
+    console.print(f"⏰ Start time: {datetime.now():%Y-%m-%d %H:%M:%S}")
+    console.rule(style="cyan")
 
-    # Set multiprocessing start method
+    os.makedirs(args.output_dir, exist_ok=True)
     multiprocessing.set_start_method("spawn", force=True)
     os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
-    # Set up DP master information
     if args.node_size == 1:
         args.master_port = get_open_port()
     else:
-        assert args.master_addr != "127.0.0.1", "For multi-node, --master_addr must be provided."
-        assert args.master_port > 0, "For multi-node, --master_port must be provided."
+        assert args.master_addr != "127.0.0.1"
+        assert args.master_port > 0
 
-    dp_size = args.dp_size
-    node_size = args.node_size
-    node_rank = args.node_rank
-    
-    assert dp_size % node_size == 0, "dp_size should be divisible by node_size"
-    dp_per_node = dp_size // node_size
+    assert args.dp_size % args.node_size == 0
+    dp_per_node = args.dp_size // args.node_size
 
-    if dp_size == 1:
-        # Single worker process
+    if args.dp_size == 1:
         run_dp_worker(args, dp_rank=0, dp_size=1)
     else:
-        # Multiple worker processes
         procs = []
-        for local_dp_rank in range(dp_per_node):
-            global_dp_rank = node_rank * dp_per_node + local_dp_rank
-            proc = Process(target=run_dp_worker, args=(args, global_dp_rank, dp_size))
-            proc.start()
-            procs.append(proc)
-        
+        console.print(f"🔄 Starting {dp_per_node} worker(s) on node {args.node_rank}/{args.node_size-1}")
+        for local_rank in range(dp_per_node):
+            global_rank = args.node_rank * dp_per_node + local_rank
+            p = Process(target=run_dp_worker, args=(args, global_rank, args.dp_size))
+            p.start()
+            procs.append(p)
+
         exit_code = 0
-        for proc in procs:
-            proc.join()
-            if proc.exitcode is None:
-                print(f"Killing process {proc.pid} that didn't stop.")
-                proc.kill()
-                exit_code = 1
-            elif proc.exitcode:
-                exit_code = proc.exitcode
-        
+        for p in procs:
+            p.join()
+            if p.exitcode not in (None, 0):
+                exit_code = p.exitcode or 1
         sys.exit(exit_code)
+
 
 if __name__ == "__main__":
     main()
+
+
+
     
-    # example:
-    # python model_filtering/diff_filter.py --model_path "Qwen/Qwen2.5-7B-Instruct" --dataset_parquet_path "data/train/codegen_mbpp_374.parquet" --output_dir "./diff_filter_output" --prompt_key "prompt" --max_prompt_length 2048 --truncation "left" --checkpoint_freq 5 --debug --dp_size 1 --tp_size 1 --node_size 1 --node_rank 0 --master_addr "127.0.0.1" --master_port 0 --batch_size 128 --reward_workers 64
+    # 7B (H200) Qwen2.5-7B-Instruct 
+    #  ~0.16s per sample
+    # python model_filtering/diff_filter.py --model_path "Qwen/Qwen2.5-7B-Instruct" --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" --output_dir "./diff_filter_output"  --max_prompt_length 2048 --truncation "left" --checkpoint_freq 5 --dp_size 1 --tp_size 1 --node_size 1 --node_rank 0 --master_addr "127.0.0.1" --master_port 0 --batch_size 128 --reward_workers 64 --max_new_tokens 4096
+    
+    # 32B (H200) Qwen2.5-32B-Instruct
+    # ~0.23s per sample
+    # python model_filtering/diff_filter.py --model_path "Qwen/Qwen2.5-32B-Instruct" --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" --output_dir "./diff_filter_output" --max_prompt_length 2048 --truncation "left" --checkpoint_freq 5 --dp_size 2 --tp_size 4 --node_size 1 --node_rank 0 --master_addr "127.0.0.1" --master_port 0 --batch_size 128 --reward_workers 64 --max_new_tokens 4096
+    
+    # 32B (H200) DeepSeek-R1-Distill-Qwen-32B
+    # ~6s per sample
+    # python model_filtering/diff_filter.py --model_path "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B" --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" --output_dir "./diff_filter_output" --max_prompt_length 2048 --truncation "left" --checkpoint_freq 5 --dp_size 2 --tp_size 4 --node_size 1 --node_rank 0 --master_addr "127.0.0.1" --master_port 0 --batch_size 128 --reward_workers 64 --max_new_tokens 32768
+    
