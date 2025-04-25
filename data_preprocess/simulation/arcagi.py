@@ -12,16 +12,15 @@ from verl.utils.data_process.filter import LengthFilter
 
 import transformers
 
-RawARCPrompt = """You are a puzzle solving wizard. You are given a puzzle from the abstraction and reasoning corpus developed by Francois Chollet. Finally, you have to put your answer within <answer> and </answer> tags. 
-Here are the example input and output pairs from which you should learn the underlying rule to later predict the output for the given test input:
+RawARCPrompt = """You are a puzzle solving wizard. You are given a puzzle from the abstraction and reasoning corpus developed by Francois Chollet. Here are the example input and output pairs from which you should learn the underlying rule to later predict the output for the given test input:
 ----------------------------------------
 {{training_data}}
 ----------------------------------------
 Now, solve the following puzzle based on its input grid by applying the rules you have learned from the training data.
 ----------------------------------------
-['input': {{input_test_data}}, 'output': [[]]]
+{{input_test_data}}
 ----------------------------------------
-What is the output grid? Please put your answer within <answer> and </answer> tags, your final answer should be only the output grid, for example, <answer> your answer </answer>.
+What is the output grid? Please put your answer within <answer> and </answer> tags, your final answer should be only the output grid (2d array).
 """
 
 def get_datasets(cache_dir, name, download=False):

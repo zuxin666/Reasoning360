@@ -23,7 +23,7 @@ def extract_solution(solution_str):
         except Exception as e:
             return [[0]]
     else:
-        return [[0]]  
+        return [[0]]
 
 def pad_array_with_value(array, target_shape, pad_value):
     """
@@ -80,9 +80,7 @@ def compare_solutions_with_padding(generated_output, correct_output, pad_value=-
     total_pixels = max_rows * max_cols
     correct_pixels = np.sum((padded_generated == padded_correct) & (padded_generated != pad_value) & (padded_correct != pad_value))
     correct_percentage = (correct_pixels / total_pixels)
-    
-    is_correct = (correct_pixels == total_pixels)
-    
+    is_correct = float(correct_pixels == total_pixels)
     return is_correct, correct_percentage
 
 
@@ -91,4 +89,4 @@ def compute_score(model_output: str, ground_truth: np.ndarray) -> float:
     model_output = str(model_output)
     final_answer = extract_solution(model_output)
     is_correct, correct_percentage = compare_solutions_with_padding(final_answer, ground_truth)
-    return correct_percentage
+    return is_correct
