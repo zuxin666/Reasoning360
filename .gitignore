@@ -147,6 +147,7 @@ backup/
 
 # data
 data
+diff_filter_output/
 
 # docker
 docker/images/
