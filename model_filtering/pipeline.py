@@ -279,7 +279,7 @@ class DifficultyFilterPipeline:
         global_errors = chk["global_errors"]
 
         model_name = self.args.model_path.split("/")[-1]
-        dataset_name = os.path.basename(self.args.dataset_parquet_path).split(".")[0]
+        dataset_name = os.path.basename(self.args.dataset_parquet_path).rsplit(".parquet", 1)[0]
         rank_output_dir = os.path.join(self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}")
         os.makedirs(rank_output_dir, exist_ok=True)
 
