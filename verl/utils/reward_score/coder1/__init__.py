@@ -288,6 +288,4 @@ def compute_score(
         + f"Final Rward = {score}"
         + marker * 16
     )
-    
-    print(reward_log)
     return score
