@@ -202,18 +202,46 @@ def analyze_dataset_difficulty(output_dir: str, dataset_name: str, model_names: 
             dist_table.add_column("Count")
             dist_table.add_column("Percentage")
             
-            bins = [(0, 0.2, "Very Hard"), 
-                   (0.2, 0.4, "Hard"),
-                   (0.4, 0.6, "Medium"),
-                   (0.6, 0.8, "Easy"),
-                   (0.8, 1.0, "Very Easy")]
+            # Count exact 0s and 1s
+            exact_zeros = sum(1 for r in pass_rates if r == 0.0)
+            exact_ones = sum(1 for r in pass_rates if r == 1.0)
             
-            for bin_start, bin_end, difficulty in bins:
-                count = sum(1 for r in pass_rates if bin_start <= r < bin_end)
+            # Add special categories for exactly 0 and exactly 1
+            dist_table.add_row(
+                "Impossible",
+                "Exactly 0.0",
+                str(exact_zeros),
+                f"{(exact_zeros / len(pass_rates)) * 100:.1f}%"
+            )
+            
+            # Update bins to exclude exact 0s and 1s
+            bins = [(0, 0.2, "Very Hard", True, False), 
+                   (0.2, 0.4, "Hard", False, False),
+                   (0.4, 0.6, "Medium", False, False),
+                   (0.6, 0.8, "Easy", False, False),
+                   (0.8, 1.0, "Very Easy", False, True)]
+            
+            # Add to analysis data for exact 0
+            analysis_data["difficulty_distribution"]["Impossible"] = {
+                "range": [0.0, 0.0],
+                "count": exact_zeros,
+                "percentage": (exact_zeros / len(pass_rates)) * 100
+            }
+            
+            for bin_start, bin_end, difficulty, exclude_start, exclude_end in bins:
+                # Count items in this bin, respecting exclusions
+                count = sum(1 for r in pass_rates if 
+                           (bin_start < r if exclude_start else bin_start <= r) and
+                           (r < bin_end if exclude_end else r <= bin_end))
+                
                 percentage = (count / len(pass_rates)) * 100
+                
+                # Show range notation with appropriate brackets
+                range_str = f"{'(' if exclude_start else '['}{bin_start:.1f}-{bin_end:.1f}{')' if exclude_end else ']'}"
+                
                 dist_table.add_row(
                     difficulty,
-                    f"{bin_start:.1f}-{bin_end:.1f}",
+                    range_str,
                     str(count),
                     f"{percentage:.1f}%"
                 )
@@ -221,9 +249,26 @@ def analyze_dataset_difficulty(output_dir: str, dataset_name: str, model_names: 
                 # Add to analysis data
                 analysis_data["difficulty_distribution"][difficulty] = {
                     "range": [bin_start, bin_end],
+                    "exclude_start": exclude_start,
+                    "exclude_end": exclude_end,
                     "count": count,
                     "percentage": percentage
                 }
+            
+            # Add special category for exactly 1
+            dist_table.add_row(
+                "Perfect",
+                "Exactly 1.0",
+                str(exact_ones),
+                f"{(exact_ones / len(pass_rates)) * 100:.1f}%"
+            )
+            
+            # Add to analysis data for exact 1
+            analysis_data["difficulty_distribution"]["Perfect"] = {
+                "range": [1.0, 1.0],
+                "count": exact_ones,
+                "percentage": (exact_ones / len(pass_rates)) * 100
+            }
             
             progress.print(dist_table)
             

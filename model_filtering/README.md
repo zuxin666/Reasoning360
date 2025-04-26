@@ -123,9 +123,11 @@ The utility functions produce the following output files for each model:
 - `concatenated_results.json`: Combined results from all DP workers
 - `analysis_results.json`: Statistics and difficulty distribution analysis
 
-The analysis output categorizes problems into five difficulty levels:
-- Very Hard (pass rate 0.0-0.2)
+The analysis output categorizes problems into seven difficulty levels:
+- Impossible (pass rate exactly 0.0)
+- Very Hard (pass rate 0.0-0.2, exclusive)
 - Hard (pass rate 0.2-0.4)
 - Medium (pass rate 0.4-0.6)
 - Easy (pass rate 0.6-0.8)
-- Very Easy (pass rate 0.8-1.0)
+- Very Easy (pass rate 0.8-1.0, exclusive)
+- Perfect (pass rate exactly 1.0)
