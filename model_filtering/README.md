@@ -16,7 +16,6 @@ python model_filtering/diff_filter.py \
   --output_dir "./diff_filter_output" \
   --max_prompt_length 2048 \
   --truncation "left" \
-  --checkpoint_freq 5 \
   --dp_size 1 \
   --tp_size 1 \
   --node_size 1 \
@@ -36,7 +35,6 @@ python model_filtering/diff_filter.py \
   --output_dir "./diff_filter_output" \
   --max_prompt_length 2048 \
   --truncation "left" \
-  --checkpoint_freq 5 \
   --dp_size 2 \
   --tp_size 4 \
   --node_size 1 \
@@ -48,7 +46,7 @@ python model_filtering/diff_filter.py \
   --max_new_tokens 4096
 ```
 
-### DeepSeek-R1-Distill-Qwen-32B (~6s per data point on leetcode2k)
+### DeepSeek-R1-Distill-Qwen-32B (~17.5s per data point on leetcode2k)
 ```bash
 python model_filtering/diff_filter.py \
   --model_path "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B" \
@@ -56,7 +54,6 @@ python model_filtering/diff_filter.py \
   --output_dir "./diff_filter_output" \
   --max_prompt_length 2048 \
   --truncation "left" \
-  --checkpoint_freq 5 \
   --dp_size 2 \
   --tp_size 4 \
   --node_size 1 \
@@ -67,6 +64,21 @@ python model_filtering/diff_filter.py \
   --reward_workers 64 \
   --max_new_tokens 32768
 ```
+
+## Checkpoint & Resumption
+
+The pipeline automatically saves batch results to JSON files in the output directory as it processes data. If a run is interrupted, the pipeline will automatically resume from where it left off by:
+
+1. Scanning the output directory for existing batch files
+2. Loading results from these files
+3. Continuing from the next unprocessed batch
+
+### Advanced Checkpoint Options
+
+The pipeline provides two flags to control checkpoint behavior:
+
+- `--force_regenerate`: Ignores all existing checkpoint files and starts processing from the beginning, overwriting previous results
+- `--recalculate_rewards`: Keeps previously generated model responses but recalculates all reward scores (useful when implementing new evaluation metrics without re-running the expensive model inference)
 
 ## Utility Functions
 

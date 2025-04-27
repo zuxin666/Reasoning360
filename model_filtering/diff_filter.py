@@ -85,9 +85,13 @@ def main():
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--repetition_penalty", type=float, default=1.0)
 
-    parser.add_argument("--checkpoint_freq", type=int, default=5)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--reward_workers", type=int, default=16)
+
+    parser.add_argument("--force_regenerate", action="store_true", 
+                      help="Force regeneration of outputs for all data, ignoring previously saved results")
+    parser.add_argument("--recalculate_rewards", action="store_true",
+                      help="Recalculate rewards for existing outputs instead of using saved scores")
 
     parser.add_argument("--dp_size", type=int, default=1)
     parser.add_argument("--tp_size", type=int, default=1)

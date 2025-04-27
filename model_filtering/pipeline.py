@@ -13,13 +13,14 @@ from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 from rich.panel import Panel
 from multiprocessing import Pool
+import glob
 
 from model_filtering.utils import console, json_default
 from verl.utils.reward_score import _default_compute_score
 
 class DifficultyFilterPipeline:
     def __init__(self, args):
-        self.args = args
+        self.args = args            
         self.tokenizer = None
         self.model = None
         self.sampling_params = None
@@ -115,59 +116,73 @@ class DifficultyFilterPipeline:
         os.makedirs(rank_output_dir, exist_ok=True)
         return os.path.join(rank_output_dir, "checkpoint.pkl")
 
-    def save_checkpoint(self, current_batch_idx, global_results, global_errors):
-        checkpoint_path = self.get_checkpoint_path()
-        checkpoint_data = {
-            "current_batch_idx": current_batch_idx,
-            "global_results": global_results,
-            "global_errors": global_errors,
-            "metadata": {
-                "model_path": self.args.model_path,
-                "dataset_path": self.args.dataset_parquet_path,
-                "timestamp": datetime.now().isoformat(),
-                "args": {
-                    "n": self.args.n,
-                    "max_new_tokens": self.args.max_new_tokens,
-                    "temperature": self.args.temperature,
-                    "top_p": self.args.top_p,
-                    "top_k": self.args.top_k,
-                    "batch_size": self.args.batch_size,
-                },
-            },
-        }
-        with open(checkpoint_path, "wb") as f:
-            pickle.dump(checkpoint_data, f)
-        console.print(f"💾 Checkpoint saved at batch {current_batch_idx} → {checkpoint_path}")
-
     def load_checkpoint(self):
-        checkpoint_path = self.get_checkpoint_path()
-        if not os.path.exists(checkpoint_path):
+        model_name = self.args.model_path.split("/")[-1]
+        dataset_name = os.path.basename(self.args.dataset_parquet_path).rsplit(".parquet", 1)[0]
+        rank_output_dir = os.path.join(self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}")
+        os.makedirs(rank_output_dir, exist_ok=True)
+        
+        # If force_regenerate is set, start from scratch
+        if self.args.force_regenerate:
+            console.print("🔄 [warning]Force regeneration requested - ignoring existing checkpoints[/warning]")
             return {"current_batch_idx": 0, "global_results": {}, "global_errors": {}}
-
-        try:
-            with open(checkpoint_path, "rb") as f:
-                checkpoint_data = pickle.load(f)
-            if "metadata" not in checkpoint_data:
-                console.print(
-                    f"⚠️ [warning]Old checkpoint format detected – continuing anyway.[/warning]"
-                )
-                return {
-                    "current_batch_idx": checkpoint_data.get("current_batch_idx", 0),
-                    "global_results": checkpoint_data.get("global_results", {}),
-                    "global_errors": checkpoint_data.get("global_errors", {}),
-                }
-            meta = checkpoint_data["metadata"]
-            if (
-                meta.get("model_path") != self.args.model_path
-                or meta.get("dataset_path") != self.args.dataset_parquet_path
-            ):
-                console.print("⚠️ [warning]Checkpoint model/dataset mismatch – starting fresh.[/warning]")
-                return {"current_batch_idx": 0, "global_results": {}, "global_errors": {}}
-            console.print(f"📋 Resuming from checkpoint batch {checkpoint_data['current_batch_idx']}")
-            return checkpoint_data
-        except Exception as e:
-            console.print(f"⚠️ [warning]Failed to load checkpoint: {e} – starting fresh.[/warning]")
-            return {"current_batch_idx": 0, "global_results": {}, "global_errors": {}}
+        
+        # Find batch files and extract their numbers
+        batch_files = glob.glob(os.path.join(rank_output_dir, "batch_*.json"))
+        batch_files_with_idx = []
+        
+        for batch_file in batch_files:
+            try:
+                batch_num = int(os.path.basename(batch_file).split("_")[1].split(".")[0])
+                batch_files_with_idx.append((batch_num, batch_file))
+            except (ValueError, IndexError):
+                console.print(f"⚠️ [warning]Could not parse batch number from {batch_file}[/warning]")
+        
+        # Sort by batch number
+        batch_files_with_idx.sort(key=lambda x: x[0])
+        
+        # Load results from existing batch files
+        global_results = {}
+        global_errors = {}
+        
+        if batch_files_with_idx:
+            console.print(f"📋 Found {len(batch_files_with_idx)} existing batch files to load")
+            
+            for batch_idx, batch_file in batch_files_with_idx:
+                try:
+                    with open(batch_file, 'r') as f:
+                        batch_data = json.load(f)
+                        
+                    # If recalculate_rewards is set, we'll reload the responses but recalculate scores later
+                    if self.args.recalculate_rewards:
+                        for i, result in batch_data.items():
+                            # Keep everything except scores
+                            global_results[f"{batch_idx}_{i}"] = {
+                                "messages": result["messages"],
+                                "question": result["question"],
+                                "ground_truth": result["ground_truth"],
+                                "source": result["source"],
+                                "responses": result["responses"],
+                                "extra_info": result["extra_info"],
+                                "needs_recalculation": True
+                            }
+                        console.print(f"🔄 Loaded batch {batch_idx} with {len(batch_data)} results (scores will be recalculated)")
+                    else:
+                        # Add batch results to global results with proper keys
+                        for i, result in batch_data.items():
+                            global_results[f"{batch_idx}_{i}"] = result
+                        
+                        console.print(f"✅ Loaded batch {batch_idx} with {len(batch_data)} results")
+                except Exception as e:
+                    console.print(f"⚠️ [warning]Failed to load batch file {batch_file}: {e}[/warning]")
+        
+        # Determine the next batch index to start from
+        start_batch_idx = batch_files_with_idx[-1][0] + 1 if batch_files_with_idx else 0
+        
+        if batch_files_with_idx:
+            console.print(f"📋 Resuming from batch {start_batch_idx} with {len(global_results)} loaded results")
+        
+        return {"current_batch_idx": start_batch_idx, "global_results": global_results, "global_errors": global_errors}
 
     # ------------- message helpers ----------------------------------------- #
     def extract_messages(self, batch_dict, index):
@@ -188,13 +203,19 @@ class DifficultyFilterPipeline:
     def compute_single_reward(args):
         response, data_source, ground_truth, extra_info = args
         try:
-            score = _default_compute_score(
+            result = _default_compute_score(
                 data_source=data_source,
                 solution_str=response,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
             )
-            return {"score": score}
+            
+            if isinstance(result, dict):
+                return result
+            elif isinstance(result, float):
+                return {"score": result}
+            else:
+                raise ValueError(f"Unexpected result type: {type(result)}")
         except Exception as e:
             return {"score": 0.0, "error": str(e)}
 
@@ -204,30 +225,42 @@ class DifficultyFilterPipeline:
 
         reward_pbar = tqdm(total=len(outputs), desc="💯 Computing rewards", leave=False, position=1)
         for i in range(len(outputs)):
-            responses = [r.text for r in outputs[i].outputs]
+            # Get the full original responses
+            full_responses = [r.text for r in outputs[i].outputs]
+            
+            # Process responses to extract content after </think> tag if present
+            processed_responses = []
+            for resp in full_responses:
+                if "</think>" in resp:
+                    processed_responses.append(resp.split("</think>", 1)[1])
+                else:
+                    processed_responses.append(resp)
+            
             data_source = batch_dict["data_source"][i]
             ground_truth = batch_dict["reward_model"]["ground_truth"][i]
             messages = self.extract_messages(batch_dict, i)
             question = next((m["content"] for m in messages if m["role"] == "user"), "No question found")
             extra_info = {k: batch_dict["extra_info"][k][i] for k in batch_dict["extra_info"]}
 
-            compute_args = [(r, data_source, ground_truth, extra_info) for r in responses]
+            # Use processed responses (after </think>) for reward calculation
+            compute_args = [(r, data_source, ground_truth, extra_info) for r in processed_responses]
             if self.reward_pool:
                 detailed = self.reward_pool.map(self.compute_single_reward, compute_args)
             else:
                 detailed = [self.compute_single_reward(a) for a in compute_args]
-
+            
             scores = [d["score"] for d in detailed]
+            
             pass_cnt = sum(s >= self.args.correct_reward_threshold for s in scores)
             batch_results[i] = {
                 "messages": messages,
                 "question": question,
                 "ground_truth": ground_truth,
                 "source": data_source,
-                "responses": responses,
+                "responses": full_responses,  # Save full responses
                 "scores": scores,
                 "detailed_scores": detailed,
-                "pass_rate": pass_cnt / len(responses) if responses else 0.0,
+                "pass_rate": pass_cnt / len(processed_responses) if processed_responses else 0.0,
                 "extra_info": extra_info,
             }
             reward_pbar.update(1)
@@ -283,6 +316,70 @@ class DifficultyFilterPipeline:
         rank_output_dir = os.path.join(self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}")
         os.makedirs(rank_output_dir, exist_ok=True)
 
+        # Check if we need to recalculate rewards for existing results
+        if self.args.recalculate_rewards and global_results:
+            console.print("\n🔄 Recalculating rewards for existing results...")
+            items_to_recalculate = [(k, v) for k, v in global_results.items() if v.get("needs_recalculation", False)]
+            
+            if items_to_recalculate:
+                recalculation_pbar = tqdm(
+                    total=len(items_to_recalculate),
+                    desc="🔄 Recalculating rewards",
+                    position=0
+                )
+                
+                for key, result in items_to_recalculate:
+                    batch_idx, sample_idx = key.split("_")
+                    batch_idx, sample_idx = int(batch_idx), int(sample_idx)
+                    
+                    # Compute rewards for this sample
+                    data_source = result["source"]
+                    ground_truth = result["ground_truth"]
+                    responses = result["responses"]
+                    extra_info = result["extra_info"]
+                    
+                    # Process responses to extract content after </think> tag if present
+                    processed_responses = []
+                    for resp in responses:
+                        if "</think>" in resp:
+                            processed_responses.append(resp.split("</think>", 1)[1])
+                        else:
+                            processed_responses.append(resp)
+                    
+                    compute_args = [(r, data_source, ground_truth, extra_info) for r in processed_responses]
+                    if self.reward_pool:
+                        detailed = self.reward_pool.map(self.compute_single_reward, compute_args)
+                    else:
+                        detailed = [self.compute_single_reward(a) for a in compute_args]
+                    
+                    scores = [d["score"] for d in detailed]
+                    pass_cnt = sum(s >= self.args.correct_reward_threshold for s in scores)
+                    
+                    # Update the result
+                    result["scores"] = scores
+                    result["detailed_scores"] = detailed
+                    result["pass_rate"] = pass_cnt / len(processed_responses) if processed_responses else 0.0
+                    result.pop("needs_recalculation", None)
+                    
+                    # Save the updated batch file
+                    batch_results = {}
+                    for i, r in global_results.items():
+                        curr_batch_idx = int(i.split("_")[0])
+                        curr_sample_idx = int(i.split("_")[1])
+                        if curr_batch_idx == batch_idx:
+                            batch_results[curr_sample_idx] = r
+                    
+                    batch_out = os.path.join(rank_output_dir, f"batch_{batch_idx:05d}.json")
+                    with open(batch_out, "w") as f:
+                        json.dump(batch_results, f, indent=2, default=json_default)
+                    
+                    recalculation_pbar.update(1)
+                
+                recalculation_pbar.close()
+                console.print(f"✅ Recalculated rewards for {len(items_to_recalculate)} samples")
+            else:
+                console.print("ℹ️ No items found that need reward recalculation")
+
         progress_bar = tqdm(
             total=len(dataloader),
             initial=start_batch_idx,
@@ -327,9 +424,7 @@ class DifficultyFilterPipeline:
             batch_out = os.path.join(rank_output_dir, f"batch_{idx:05d}.json")
             with open(batch_out, "w") as f:
                 json.dump(batch_results, f, indent=2, default=json_default)
-
-            if idx % self.args.checkpoint_freq == 0:
-                self.save_checkpoint(idx + 1, global_results, global_errors)
+            console.print(f"💾 Saved batch results to [highlight]{batch_out}[/highlight]")
 
             self.print_progress_stats(idx, len(dataloader))
             progress_bar.update(1)
@@ -341,8 +436,6 @@ class DifficultyFilterPipeline:
         console.print()
         console.print(Panel("[bold]Inference completed!", title="🏁 Finished", border_style="green"))
         console.print(f"⏱️  Total time: [time]{self.format_time(elapsed_total)}[/time]")
-
-        self.save_checkpoint(len(dataloader), global_results, global_errors)
 
         final_path = os.path.join(rank_output_dir, "final_results.json")
         with open(final_path, "w") as f:
