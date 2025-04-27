@@ -16,7 +16,7 @@ python model_filtering/diff_filter.py \
   --output_dir "./diff_filter_output" \
   --max_prompt_length 2048 \
   --truncation "left" \
-  --dp_size 1 \
+  --dp_size 8 \
   --tp_size 1 \
   --node_size 1 \
   --node_rank 0 \
