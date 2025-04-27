@@ -52,24 +52,38 @@ def read_json(file_path: str) -> Dict:
         console.print(f"[error]Error reading {file_path}: {e}[/error]")
         return {}
 
-def concat_model_results(output_dir: str, dataset_name: str, model_name: str, force_reconcat: bool = False) -> None:
-    """Concatenate final_results.json from all dp* directories for a model."""
+def concat_model_results(output_dir: str, dataset_name: str, model_name: str, force_reconcat: bool = False, save_to_file: bool = True) -> Dict:
+    """Concatenate final_results.json from all dp* directories for a model.
+    
+    Args:
+        output_dir: Base output directory
+        dataset_name: Name of the dataset
+        model_name: Name of the model
+        force_reconcat: Whether to force re-concatenation if concatenated results already exist
+        save_to_file: Whether to save the concatenated results to a file
+        
+    Returns:
+        Dictionary containing the concatenated results
+    """
     model_dir = os.path.join(output_dir, dataset_name, model_name)
     if not os.path.exists(model_dir):
         console.print(f"[error]Directory not found: {model_dir}[/error]")
-        return
+        return {}
 
     save_path = os.path.join(model_dir, "concatenated_results.json")
     if os.path.exists(save_path) and not force_reconcat:
         console.print(f"[info]Concatenated results already exist at {save_path}. Use force_reconcat=True to regenerate.[/info]")
-        return
+        if save_to_file:
+            return read_json(save_path)
+        else:
+            return read_json(save_path)
 
     all_results = {}
     dp_dirs = glob.glob(os.path.join(model_dir, "dp*"))
     
     if not dp_dirs:
         console.print(f"[warning]No DP directories found in {model_dir}[/warning]")
-        return
+        return {}
         
     console.print(f"Found {len(dp_dirs)} DP directories")
     
@@ -100,16 +114,22 @@ def concat_model_results(output_dir: str, dataset_name: str, model_name: str, fo
 
     if not all_results:
         console.print("[error]No valid results found to concatenate[/error]")
-        return
+        return {}
 
-    with open(save_path, 'w') as f:
-        json.dump({
-            "results": all_results,
-            "total_samples": len(all_results),
-            "dp_count": len(dp_dirs)
-        }, f, indent=2, default=json_default)
+    result_data = {
+        "results": all_results,
+        "total_samples": len(all_results),
+        "dp_count": len(dp_dirs)
+    }
     
-    console.print(f"[success]Concatenated {len(all_results)} samples from {len(dp_dirs)} DPs to {save_path}[/success]")
+    if save_to_file:
+        with open(save_path, 'w') as f:
+            json.dump(result_data, f, indent=2, default=json_default)
+        console.print(f"[success]Concatenated {len(all_results)} samples from {len(dp_dirs)} DPs to {save_path}[/success]")
+    else:
+        console.print(f"[success]Concatenated {len(all_results)} samples from {len(dp_dirs)} DPs (not saved to file)[/success]")
+    
+    return result_data
 
 def analyze_dataset_difficulty(output_dir: str, dataset_name: str, model_names: Optional[List[str]] = None, 
                              force_reconcat: bool = False, save_concat: bool = True) -> None:
@@ -136,17 +156,21 @@ def analyze_dataset_difficulty(output_dir: str, dataset_name: str, model_names: 
             progress.print(f"\n[bold]Analyzing Model: {model}[/bold]")
             model_dir = os.path.join(dataset_dir, model)
             
-            # Try to load concatenated results first
+            # Get concatenated results based on save_concat preference
             results_path = os.path.join(model_dir, "concatenated_results.json")
-            if not os.path.exists(results_path) or force_reconcat:
+            data = None
+            
+            if os.path.exists(results_path) and not force_reconcat:
+                data = read_json(results_path)
+            
+            if data is None or not data or "results" not in data or force_reconcat:
                 try:
-                    concat_model_results(output_dir, dataset_name, model, force_reconcat)
+                    data = concat_model_results(output_dir, dataset_name, model, force_reconcat, save_to_file=save_concat)
                 except Exception as e:
                     progress.print(f"[error]Failed to concatenate results for {model}: {e}[/error]")
                     progress.advance(task)
                     continue
 
-            data = read_json(results_path)
             if not data or "results" not in data:
                 progress.print(f"[warning]No valid results found for {model}[/warning]")
                 progress.advance(task)
@@ -280,14 +304,6 @@ def analyze_dataset_difficulty(output_dir: str, dataset_name: str, model_names: 
                 progress.print(f"[success]Saved analysis results to {analysis_path}[/success]")
             except Exception as e:
                 progress.print(f"[error]Failed to save analysis results for {model}: {e}[/error]")
-            
-            # Optionally remove concatenated results if save_concat is False
-            if not save_concat and os.path.exists(results_path):
-                try:
-                    os.remove(results_path)
-                    progress.print(f"[info]Removed concatenated results for {model} (save_concat=False)[/info]")
-                except Exception as e:
-                    progress.print(f"[warning]Failed to remove concatenated results for {model}: {e}[/warning]")
             
             progress.print()  # Add a blank line between models
             progress.advance(task)
