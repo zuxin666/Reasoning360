@@ -25,8 +25,35 @@ class DifficultyFilterPipeline:
         self.model = None
         self.sampling_params = None
 
-        # Parallel reward workers
-        self.reward_pool = Pool(processes=args.reward_workers) if args.reward_workers > 1 else None
+        # Parallel reward workers - set appropriate worker count based on CPU availability
+        if args.reward_workers > 1:
+            # Get available CPU cores
+            available_cpus = os.cpu_count() or 1
+            
+            # print available_cpus
+            console.print(f"🔄 [info]Available CPUs: {available_cpus}[/info]")
+            
+            # Consider data parallelism when allocating workers
+            # Leave some CPUs for other tasks (dataloader, main thread, etc.)
+            if hasattr(args, 'dp_size') and args.dp_size > 1:
+                # Reserve at least 2 cores per DP process (1 for main thread, 1 for dataloader)
+                max_workers = max(1, (available_cpus // args.dp_size) - 2)
+            else:
+                # Reserve ~25% of cores for other tasks, but at least 2
+                reserved_cores = max(2, available_cpus // 4)
+                max_workers = max(1, available_cpus - reserved_cores)
+            
+            # Cap the worker count to the requested amount or calculated maximum
+            worker_count = min(args.reward_workers, max_workers)
+            
+            if worker_count < args.reward_workers:
+                console.print(f"⚠️ [warning]Reducing reward workers from {args.reward_workers} to {worker_count} based on CPU availability[/warning]")
+            else:
+                console.print(f"🔄 [info]Using {worker_count} reward workers[/info]")
+            
+            self.reward_pool = Pool(processes=worker_count)
+        else:
+            self.reward_pool = None
 
         # Timing
         self.start_time = time.time()
@@ -72,7 +99,16 @@ class DifficultyFilterPipeline:
     # ------------- dataset -------------------------------------------------- #
     def prepare_dataset(self):
         console.print(f"📂 Loading dataset from [highlight]{self.args.dataset_parquet_path}[/highlight]...")
-        dataset = Dataset.from_parquet(self.args.dataset_parquet_path)
+        if "livecodebench" in self.args.dataset_parquet_path:
+            # livecodebench is too long so we need a different way to load it
+            import polars as pl
+            console.print(f"🐞 [DEBUG] Loading livecodebench dataset using polars")
+            pd_data = pl.read_parquet(self.args.dataset_parquet_path).to_pandas()
+            dataset = Dataset.from_pandas(pd_data)
+        else:
+            dataset = Dataset.from_parquet(self.args.dataset_parquet_path)
+        
+        console.print(f"🐞 [DEBUG] Dataset loaded with [highlight]{len(dataset)}[/highlight] samples")
 
         # ── debug slice
         if self.args.debug:
