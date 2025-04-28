@@ -142,7 +142,7 @@ Read the inputs from stdin solve the problem and write the answer to stdout (do 
                 "index": idx,
                 "reference": "",  # No solution data in LiveCodeBench
                 "dataset": "LiveCodeBench",
-                "function_name": function_name if "function_name" in locals() else None,
+                "function_name": function_name if function_name else "",
                 "original_prompt": prompt,
             },
         }
