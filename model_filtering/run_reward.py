@@ -9,7 +9,9 @@ import json
 import os
 import time
 from datetime import datetime, timedelta
-from multiprocessing import Pool, cpu_count
+from multiprocessing.pool import Pool
+from multiprocessing import cpu_count
+from typing import Optional
 
 import numpy as np
 from tqdm import tqdm
@@ -53,7 +55,7 @@ def compute_single_reward(arg_tuple):
 # --------------------------------------------------------------------------- #
 # Per-rank scoring                                                             #
 # --------------------------------------------------------------------------- #
-def score_rank_dir(rank_dir: str, args, reward_pool: Pool | None, workers: int):
+def score_rank_dir(rank_dir: str, args, reward_pool: Optional[Pool], workers: int):
     batch_files = sorted(glob.glob(os.path.join(rank_dir, "batch_*.json")))
     if not batch_files:
         console.print(f"⚠️ [warning]No batch files found in {rank_dir} — skipping[/warning]")
