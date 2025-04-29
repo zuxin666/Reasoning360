@@ -165,7 +165,7 @@ for i, o in zip(_inputs, _outputs):
                 "reference": solution,
                 "original_prompt": prompt,
                 "dataset": "PrimeIntellect",
-                "function_name": fn_name if tests[0]["type"] == "function_call" else None,
+                "function_name": fn_name if tests[0]["type"] == "function_call" else ""
             },
         }
         
