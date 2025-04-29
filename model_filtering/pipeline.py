@@ -1,70 +1,33 @@
 #!/usr/bin/env python3
-import os
+
+# Standard library imports
+import glob
 import json
-import pickle
+import os
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
+
+# Third party imports
 import numpy as np
-import torch
 from datasets import Dataset
+from rich.panel import Panel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
-from rich.panel import Panel
-from multiprocessing import Pool
-import glob
 
+# Local imports
 from model_filtering.utils import console, json_default
-from verl.utils.reward_score import _default_compute_score
 
 class DifficultyFilterPipeline:
     def __init__(self, args):
-        self.args = args            
+        self.args = args
         self.tokenizer = None
         self.model = None
         self.sampling_params = None
 
-        # Parallel reward workers - set appropriate worker count based on CPU availability
-        if args.reward_workers > 1:
-            # Get available CPU cores
-            available_cpus = os.cpu_count() or 1
-            
-            # print available_cpus
-            console.print(f"🔄 [info]Available CPUs: {available_cpus}[/info]")
-            
-            # Consider data parallelism when allocating workers
-            # Leave some CPUs for other tasks (dataloader, main thread, etc.)
-            if hasattr(args, 'dp_size') and args.dp_size > 1:
-                # Reserve at least 2 cores per DP process (1 for main thread, 1 for dataloader)
-                max_workers = max(1, (available_cpus // args.dp_size) - 2)
-            else:
-                # Reserve ~25% of cores for other tasks, but at least 2
-                reserved_cores = max(2, available_cpus // 4)
-                max_workers = max(1, available_cpus - reserved_cores)
-            
-            # Cap the worker count to the requested amount or calculated maximum
-            worker_count = min(args.reward_workers, max_workers)
-            
-            if worker_count < args.reward_workers:
-                console.print(f"⚠️ [warning]Reducing reward workers from {args.reward_workers} to {worker_count} based on CPU availability[/warning]")
-            else:
-                console.print(f"🔄 [info]Using {worker_count} reward workers[/info]")
-            
-            self.reward_pool = Pool(processes=worker_count)
-        else:
-            self.reward_pool = None
-
-        # Timing
         self.start_time = time.time()
         self.gen_times = []
-        self.reward_times = []
-
-    # ------------- misc helpers -------------------------------------------- #
-    def __del__(self):
-        if self.reward_pool:
-            self.reward_pool.close()
-            self.reward_pool.join()
 
     @staticmethod
     def format_time(seconds):
@@ -109,6 +72,24 @@ class DifficultyFilterPipeline:
             dataset = Dataset.from_parquet(self.args.dataset_parquet_path)
         
         console.print(f"🐞 [DEBUG] Dataset loaded with [highlight]{len(dataset)}[/highlight] samples")
+
+        # Replace None values with empty strings in dataset columns and nested dictionaries
+        def replace_none_with_empty(obj):
+            if obj is None:
+                return ""
+            elif isinstance(obj, dict):
+                return {k: replace_none_with_empty(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [replace_none_with_empty(item) for item in obj]
+            return obj
+
+        def process_example(example):
+            for key in example:
+                example[key] = replace_none_with_empty(example[key])
+            return example
+
+        dataset = dataset.map(process_example)
+        console.print("🧹 Replaced None values with empty strings to avoid errors")
 
         # ── debug slice
         if self.args.debug:
@@ -188,27 +169,10 @@ class DifficultyFilterPipeline:
                 try:
                     with open(batch_file, 'r') as f:
                         batch_data = json.load(f)
-                        
-                    # If recalculate_rewards is set, we'll reload the responses but recalculate scores later
-                    if self.args.recalculate_rewards:
-                        for i, result in batch_data.items():
-                            # Keep everything except scores
-                            global_results[f"{batch_idx}_{i}"] = {
-                                "messages": result["messages"],
-                                "question": result["question"],
-                                "ground_truth": result["ground_truth"],
-                                "source": result["source"],
-                                "responses": result["responses"],
-                                "extra_info": result["extra_info"],
-                                "needs_recalculation": True
-                            }
-                        console.print(f"🔄 Loaded batch {batch_idx} with {len(batch_data)} results (scores will be recalculated)")
-                    else:
-                        # Add batch results to global results with proper keys
-                        for i, result in batch_data.items():
-                            global_results[f"{batch_idx}_{i}"] = result
-                        
-                        console.print(f"✅ Loaded batch {batch_idx} with {len(batch_data)} results")
+                    # Directly load results (no reward info expected here)
+                    for i, result in batch_data.items():
+                        global_results[f"{batch_idx}_{i}"] = result
+                    console.print(f"✅ Loaded batch {batch_idx} with {len(batch_data)} results")
                 except Exception as e:
                     console.print(f"⚠️ [warning]Failed to load batch file {batch_file}: {e}[/warning]")
         
@@ -234,84 +198,38 @@ class DifficultyFilterPipeline:
                     )
         return msgs
 
-    # ------------- reward / batch processing  ------------------------------ #
-    @staticmethod
-    def compute_single_reward(args):
-        response, data_source, ground_truth, extra_info = args
-        try:
-            result = _default_compute_score(
-                data_source=data_source,
-                solution_str=response,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
-            )
-            
-            if isinstance(result, dict):
-                return result
-            elif isinstance(result, float):
-                return {"score": result}
-            else:
-                raise ValueError(f"Unexpected result type: {type(result)}")
-        except Exception as e:
-            return {"score": 0.0, "error": str(e)}
-
+    # ------------- batch serialization  ------------------------------------ #
     def process_batch_outputs(self, outputs, batch_dict):
         batch_results = {}
-        reward_start = time.time()
 
-        reward_pbar = tqdm(total=len(outputs), desc="💯 Computing rewards", leave=False, position=1)
         for i in range(len(outputs)):
-            # Get the full original responses
+            # full model outputs
             full_responses = [r.text for r in outputs[i].outputs]
-            
-            # Process responses to extract content after </think> tag if present
-            processed_responses = []
-            for resp in full_responses:
-                if "</think>" in resp:
-                    processed_responses.append(resp.split("</think>", 1)[1])
-                else:
-                    processed_responses.append(resp)
-            
-            data_source = batch_dict["data_source"][i]
-            ground_truth = batch_dict["reward_model"]["ground_truth"][i]
-            messages = self.extract_messages(batch_dict, i)
-            question = next((m["content"] for m in messages if m["role"] == "user"), "No question found")
-            extra_info = {k: batch_dict["extra_info"][k][i] for k in batch_dict["extra_info"]}
 
-            # Use processed responses (after </think>) for reward calculation
-            compute_args = [(r, data_source, ground_truth, extra_info) for r in processed_responses]
-            if self.reward_pool:
-                detailed = self.reward_pool.map(self.compute_single_reward, compute_args)
-            else:
-                detailed = [self.compute_single_reward(a) for a in compute_args]
-            
-            scores = [d["score"] for d in detailed]
-            
-            pass_cnt = sum(s >= self.args.correct_reward_threshold for s in scores)
+            data_source   = batch_dict["data_source"][i]
+            ground_truth  = batch_dict["reward_model"]["ground_truth"][i]
+            messages      = self.extract_messages(batch_dict, i)
+            question      = next((m["content"] for m in messages if m["role"] == "user"), "No question found")
+            extra_info    = {k: batch_dict["extra_info"][k][i] for k in batch_dict["extra_info"]}
+
             batch_results[i] = {
-                "messages": messages,
-                "question": question,
+                "messages":    messages,
+                "question":    question,
                 "ground_truth": ground_truth,
-                "source": data_source,
-                "responses": full_responses,  # Save full responses
-                "scores": scores,
-                "detailed_scores": detailed,
-                "pass_rate": pass_cnt / len(processed_responses) if processed_responses else 0.0,
-                "extra_info": extra_info,
+                "source":      data_source,
+                "responses":   full_responses,
+                "extra_info":  extra_info,
             }
-            reward_pbar.update(1)
-        reward_pbar.close()
 
-        self.reward_times.append(time.time() - reward_start)
         return batch_results
 
     # ------------- progress ------------------------------------------------- #
     def print_progress_stats(self, idx, total_batches):
         elapsed = time.time() - self.start_time
         eta = "calculating..."
-        if idx > 0 and self.gen_times and self.reward_times:
+        if idx > 0 and self.gen_times:
             remain = total_batches - idx - 1
-            eta_batch = max(np.mean(self.gen_times[-10:]), np.mean(self.reward_times[-10:]))
+            eta_batch = np.mean(self.gen_times[-10:])
             eta = self.format_time(remain * eta_batch)
 
         console.print()
@@ -326,8 +244,6 @@ class DifficultyFilterPipeline:
         console.print(f"⏱️  Elapsed: [time]{self.format_time(elapsed)}[/time] | ETA: [time]{eta}[/time]")
         if self.gen_times:
             console.print(f"⚡ Generation avg (last 10): [metric]{np.mean(self.gen_times[-10:]):.2f}s[/metric]")
-        if self.reward_times:
-            console.print(f"🧮 Reward avg (last 10): [metric]{np.mean(self.reward_times[-10:]):.2f}s[/metric]")
 
     # ------------- main loop ------------------------------------------------ #
     def run_inference(self):
@@ -344,77 +260,15 @@ class DifficultyFilterPipeline:
 
         chk = self.load_checkpoint()
         start_batch_idx = chk["current_batch_idx"]
-        global_results = chk["global_results"]
-        global_errors = chk["global_errors"]
+        global_results  = chk["global_results"]
+        global_errors   = chk["global_errors"]
 
-        model_name = self.args.model_path.split("/")[-1]
+        model_name   = self.args.model_path.split("/")[-1]
         dataset_name = os.path.basename(self.args.dataset_parquet_path).rsplit(".parquet", 1)[0]
-        rank_output_dir = os.path.join(self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}")
+        rank_output_dir = os.path.join(
+            self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}"
+        )
         os.makedirs(rank_output_dir, exist_ok=True)
-
-        # Check if we need to recalculate rewards for existing results
-        if self.args.recalculate_rewards and global_results:
-            console.print("\n🔄 Recalculating rewards for existing results...")
-            items_to_recalculate = [(k, v) for k, v in global_results.items() if v.get("needs_recalculation", False)]
-            
-            if items_to_recalculate:
-                recalculation_pbar = tqdm(
-                    total=len(items_to_recalculate),
-                    desc="🔄 Recalculating rewards",
-                    position=0
-                )
-                
-                for key, result in items_to_recalculate:
-                    batch_idx, sample_idx = key.split("_")
-                    batch_idx, sample_idx = int(batch_idx), int(sample_idx)
-                    
-                    # Compute rewards for this sample
-                    data_source = result["source"]
-                    ground_truth = result["ground_truth"]
-                    responses = result["responses"]
-                    extra_info = result["extra_info"]
-                    
-                    # Process responses to extract content after </think> tag if present
-                    processed_responses = []
-                    for resp in responses:
-                        if "</think>" in resp:
-                            processed_responses.append(resp.split("</think>", 1)[1])
-                        else:
-                            processed_responses.append(resp)
-                    
-                    compute_args = [(r, data_source, ground_truth, extra_info) for r in processed_responses]
-                    if self.reward_pool:
-                        detailed = self.reward_pool.map(self.compute_single_reward, compute_args)
-                    else:
-                        detailed = [self.compute_single_reward(a) for a in compute_args]
-                    
-                    scores = [d["score"] for d in detailed]
-                    pass_cnt = sum(s >= self.args.correct_reward_threshold for s in scores)
-                    
-                    # Update the result
-                    result["scores"] = scores
-                    result["detailed_scores"] = detailed
-                    result["pass_rate"] = pass_cnt / len(processed_responses) if processed_responses else 0.0
-                    result.pop("needs_recalculation", None)
-                    
-                    # Save the updated batch file
-                    batch_results = {}
-                    for i, r in global_results.items():
-                        curr_batch_idx = int(i.split("_")[0])
-                        curr_sample_idx = int(i.split("_")[1])
-                        if curr_batch_idx == batch_idx:
-                            batch_results[curr_sample_idx] = r
-                    
-                    batch_out = os.path.join(rank_output_dir, f"batch_{batch_idx:05d}.json")
-                    with open(batch_out, "w") as f:
-                        json.dump(batch_results, f, indent=2, default=json_default)
-                    
-                    recalculation_pbar.update(1)
-                
-                recalculation_pbar.close()
-                console.print(f"✅ Recalculated rewards for {len(items_to_recalculate)} samples")
-            else:
-                console.print("ℹ️ No items found that need reward recalculation")
 
         progress_bar = tqdm(
             total=len(dataloader),
@@ -451,10 +305,8 @@ class DifficultyFilterPipeline:
             self.gen_times.append(time.time() - gen_start)
             console.print(f"⏱️  Generation took [time]{self.gen_times[-1]:.2f}s[/time]")
 
+            # ----------- store outputs ------------------------- #
             batch_results = self.process_batch_outputs(outputs, batch_dict)
-            avg_pass = np.mean([r["pass_rate"] for r in batch_results.values()])
-            console.print(f"✅ Average pass rate: [success]{avg_pass:.2f}[/success]")
-
             global_results.update({f"{idx}_{i}": r for i, r in batch_results.items()})
 
             batch_out = os.path.join(rank_output_dir, f"batch_{idx:05d}.json")
@@ -472,21 +324,7 @@ class DifficultyFilterPipeline:
         console.print()
         console.print(Panel("[bold]Inference completed!", title="🏁 Finished", border_style="green"))
         console.print(f"⏱️  Total time: [time]{self.format_time(elapsed_total)}[/time]")
-
-        final_path = os.path.join(rank_output_dir, "final_results.json")
-        with open(final_path, "w") as f:
-            json.dump(
-                {
-                    "results": global_results,
-                    "errors": global_errors,
-                    "metrics": {
-                        "total_time": elapsed_total,
-                        "avg_gen_time": np.mean(self.gen_times) if self.gen_times else 0.0,
-                        "avg_reward_time": np.mean(self.reward_times) if self.reward_times else 0.0,
-                    },
-                },
-                f,
-                indent=2,
-                default=json_default,
-            )
-        console.print(f"💾 Final results saved to [highlight]{final_path}[/highlight]")
+        console.print(
+            "ℹ️ All per-batch JSON files are ready. "
+            "Run the separate reward script to score and assemble final results."
+        )

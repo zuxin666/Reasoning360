@@ -45,13 +45,13 @@ def run_dp_worker(args, dp_rank, dp_size):
             f"[bold]Batch size:[/bold] {args.batch_size}\n"
             f"[bold]Generations:[/bold] {args.n}\n"
             f"[bold]Max tokens:[/bold] {args.max_new_tokens}\n"
-            f"[bold]Reward workers:[/bold] {args.reward_workers}\n"
             f"[bold]Tensor parallel:[/bold] {args.tp_size}",
             title="📋 Configuration",
             border_style="cyan",
         )
     )
 
+    # ---------- Inference only (no reward) --------------------------------- #
     DifficultyFilterPipeline(args).run_inference()
 
 # --------------------------------------------------------------------------- #
@@ -65,7 +65,7 @@ def main():
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    parser = argparse.ArgumentParser(description="Difficulty filtering using verl reward functions")
+    parser = argparse.ArgumentParser(description="Inference-only pipeline (rewards run later)")
     parser.add_argument("--model_path", type=str, required=True)
     parser.add_argument("--dataset_parquet_path", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="./diff_filter_output")
@@ -75,7 +75,6 @@ def main():
         "--truncation", type=str, default="error", choices=["left", "right", "error"]
     )
     parser.add_argument("--default_data_source", type=str, default="None")
-    parser.add_argument("--correct_reward_threshold", type=float, default=1.0)
 
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--n", type=int, default=16)
@@ -86,12 +85,9 @@ def main():
     parser.add_argument("--repetition_penalty", type=float, default=1.0)
 
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--reward_workers", type=int, default=16)
 
-    parser.add_argument("--force_regenerate", action="store_true", 
-                      help="Force regeneration of outputs for all data, ignoring previously saved results")
-    parser.add_argument("--recalculate_rewards", action="store_true",
-                      help="Recalculate rewards for existing outputs instead of using saved scores")
+    parser.add_argument("--force_regenerate", action="store_true",
+                        help="Force regeneration of outputs for all data, ignoring previously saved results")
 
     parser.add_argument("--dp_size", type=int, default=1)
     parser.add_argument("--tp_size", type=int, default=1)
@@ -102,7 +98,7 @@ def main():
 
     args = parser.parse_args()
 
-    console.rule("[bold]Difficulty Filter Pipeline", style="cyan")
+    console.rule("[bold]Difficulty Filter — Inference-only", style="cyan")
     console.print(f"⏰ Start time: {datetime.now():%Y-%m-%d %H:%M:%S}")
     console.rule(style="cyan")
 

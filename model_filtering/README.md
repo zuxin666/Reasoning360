@@ -1,6 +1,8 @@
 # Difficulty Filter Pipeline
 
-A pipeline for difficulty filtering using reward functions, supporting data-parallel and tensor-parallel processing.
+A pipeline for difficulty filtering using reward functions, supporting data-parallel and tensor-parallel processing. The pipeline now operates in two stages:
+1. **Inference stage**: Runs the model to generate responses (GPU-intensive)
+2. **Reward stage**: Evaluates responses with reward functions (CPU-intensive)
 
 ## Resource Requirements
 
@@ -8,11 +10,13 @@ A pipeline for difficulty filtering using reward functions, supporting data-para
 
 ## Example Usage
 
-### Qwen2.5-7B-Instruct (~0.09s per data point on leetcode2k)
+### Stage 1: Inference
+
+#### Qwen2.5-7B-Instruct (~0.09s per data point on leetcode2k)
 ```bash
-python model_filtering/diff_filter.py \
+python model_filtering/run_inference.py \
   --model_path "Qwen/Qwen2.5-7B-Instruct" \
-  --dataset_parquet_path "data/train/codegen_mbpp_374.parquet" \
+  --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" \
   --output_dir "./diff_filter_output" \
   --max_prompt_length 2048 \
   --truncation "left" \
@@ -23,32 +27,13 @@ python model_filtering/diff_filter.py \
   --master_addr "127.0.0.1" \
   --master_port 0 \
   --batch_size 128 \
-  --reward_workers 64 \
+  --n 16 \
   --max_new_tokens 4096
 ```
 
-### Qwen2.5-32B-Instruct (~0.23s per data point on leetcode2k)
+#### DeepSeek-R1-Distill-Qwen-32B (~17.5s per data point on leetcode2k)
 ```bash
-python model_filtering/diff_filter.py \
-  --model_path "Qwen/Qwen2.5-32B-Instruct" \
-  --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" \
-  --output_dir "./diff_filter_output" \
-  --max_prompt_length 2048 \
-  --truncation "left" \
-  --dp_size 2 \
-  --tp_size 4 \
-  --node_size 1 \
-  --node_rank 0 \
-  --master_addr "127.0.0.1" \
-  --master_port 0 \
-  --batch_size 128 \
-  --reward_workers 64 \
-  --max_new_tokens 4096
-```
-
-### DeepSeek-R1-Distill-Qwen-32B (~17.5s per data point on leetcode2k)
-```bash
-python model_filtering/diff_filter.py \
+python model_filtering/run_inference.py \
   --model_path "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B" \
   --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" \
   --output_dir "./diff_filter_output" \
@@ -61,8 +46,21 @@ python model_filtering/diff_filter.py \
   --master_addr "127.0.0.1" \
   --master_port 0 \
   --batch_size 128 \
-  --reward_workers 64 \
+  --n 16 \
   --max_new_tokens 32768
+```
+
+### Stage 2: Reward Calculation
+
+After the inference stage is complete, run the reward calculation:
+
+```bash
+python model_filtering/run_reward.py \
+  --model_path "Qwen/Qwen2.5-7B-Instruct" \
+  --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" \
+  --output_dir "./diff_filter_output" \
+  --reward_workers 64 \
+  --correct_reward_threshold 1.0
 ```
 
 ## Checkpoint & Resumption
@@ -75,10 +73,13 @@ The pipeline automatically saves batch results to JSON files in the output direc
 
 ### Advanced Checkpoint Options
 
-The pipeline provides two flags to control checkpoint behavior:
+The pipeline provides flags to control checkpoint behavior:
 
-- `--force_regenerate`: Ignores all existing checkpoint files and starts processing from the beginning, overwriting previous results
-- `--recalculate_rewards`: Keeps previously generated model responses but recalculates all reward scores (useful when implementing new evaluation metrics without re-running the expensive model inference)
+- **Inference stage**:
+  - `--force_regenerate`: Ignores all existing checkpoint files and starts processing from the beginning, overwriting previous results
+
+- **Reward stage**:
+  - `--recalculate_rewards`: Recalculates all reward scores using the previously generated model responses (useful when implementing new evaluation metrics without re-running the expensive model inference)
 
 ## Utility Functions
 
@@ -94,6 +95,9 @@ python -m model_filtering.utils concat \
   --dataset "codegen__leetcode2k_2.4k" \
   --model "Qwen2.5-7B-Instruct"
 ```
+
+Some advanced options:
+- `--force`: Force regeneration of concatenated files even if they already exist
 
 ### Analyzing Results
 
@@ -114,19 +118,9 @@ python -m model_filtering.utils analyze \
   --models "Qwen2.5-7B-Instruct" "Qwen2.5-32B-Instruct"
 ```
 
-Advanced options:
-
-```bash
-python -m model_filtering.utils analyze \
-  --output_dir "./diff_filter_output" \
-  --dataset "codegen__leetcode2k_2.4k" \
-  --force_reconcat \ 
-  --no_save_concat
-```
-
-where:
+Some advanced options:
 - `--force_reconcat`: Force regeneration of concatenated files even if they already exist
-- `--no_save_concat`: Don't save concatenated results after analysis
+- `--save_concat`: Don't save concatenated results after analysis
 
 ### Output Files
 

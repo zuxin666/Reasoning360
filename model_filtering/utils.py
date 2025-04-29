@@ -52,6 +52,65 @@ def read_json(file_path: str) -> Dict:
         console.print(f"[error]Error reading {file_path}: {e}[/error]")
         return {}
 
+def load_concatenated_results(
+    path: Optional[str] = None,
+    base_dir: Optional[str] = None,
+    dataset_name: Optional[str] = None,
+    model_name: Optional[str] = None,
+    force_reconcat: bool = False
+) -> Dict:
+    """
+    Load concatenated results either from a specific path or by constructing the path.
+    
+    Args:
+        path: Full path to the model directory (e.g., "diff_filter_output/codegen__leetcode2k_2.4k/DeepSeek-R1-Distill-Qwen-32B")
+        base_dir: Base output directory (used with dataset_name and model_name)
+        dataset_name: Name of the dataset (used with base_dir and model_name)
+        model_name: Name of the model (used with base_dir and dataset_name)
+        force_reconcat: Whether to force re-concatenation if concatenated results already exist
+        
+    Returns:
+        Dictionary containing the concatenated results
+    """
+    # Determine the model directory path
+    if path is not None:
+        model_dir = path
+    elif all([base_dir, dataset_name, model_name]):
+        model_dir = os.path.join(base_dir, dataset_name, model_name.split("/")[0])
+    else:
+        console.print("[error]Either path or all of base_dir, dataset_name, and model_name must be provided[/error]")
+        return {}
+    
+    # Check if model directory exists
+    if not os.path.exists(model_dir):
+        console.print(f"[error]Directory not found: {model_dir}[/error]")
+        return {}
+    
+    # Path to concatenated results
+    concat_results_path = os.path.join(model_dir, "concatenated_results.json")
+    
+    # Check if concatenated results already exist and can be loaded
+    if os.path.exists(concat_results_path) and not force_reconcat:
+        console.print(f"[info]Loading existing concatenated results from {concat_results_path}[/info]")
+        return read_json(concat_results_path)
+    
+    # Concatenate results without saving
+    if path is not None:
+        # Extract dataset_name and model_name from specific_path
+        parts = path.split(os.path.sep)
+        if len(parts) >= 2:
+            extracted_dataset = parts[-2]
+            extracted_model = parts[-1]
+            return concat_model_results(os.path.dirname(os.path.dirname(path)), 
+                                      extracted_dataset, extracted_model, 
+                                      force_reconcat=True, save_to_file=False)
+        else:
+            console.print(f"[error]Could not extract dataset and model from path: {path}[/error]")
+            return {}
+    else:
+        return concat_model_results(base_dir, dataset_name, model_name, 
+                                  force_reconcat=True, save_to_file=False)
+
 def concat_model_results(output_dir: str, dataset_name: str, model_name: str, force_reconcat: bool = False, save_to_file: bool = True) -> Dict:
     """Concatenate final_results.json from all dp* directories for a model.
     
@@ -87,6 +146,8 @@ def concat_model_results(output_dir: str, dataset_name: str, model_name: str, fo
         
     console.print(f"Found {len(dp_dirs)} DP directories")
     
+    batch_performance = []
+    
     for dp_dir in dp_dirs:
         # Extract dp_rank from directory name
         try:
@@ -110,6 +171,15 @@ def concat_model_results(output_dir: str, dataset_name: str, model_name: str, fo
             f"dp{dp_rank}_{key}": value 
             for key, value in data["results"].items()
         }
+        
+        # Track batch performance
+        batch_size = len(dp_results)
+        batch_avg_pass = 0.0
+        if batch_size > 0:
+            batch_avg_pass = sum(item["pass_rate"] for item in dp_results.values()) / batch_size
+        batch_performance.append({"dp": dp_rank, "samples": batch_size, "avg_pass_rate": batch_avg_pass})
+        console.print(f"[info]Batch dp{dp_rank}: {batch_size} samples, avg pass: {batch_avg_pass:.3f}[/info]")
+        
         all_results.update(dp_results)
 
     if not all_results:
@@ -119,7 +189,8 @@ def concat_model_results(output_dir: str, dataset_name: str, model_name: str, fo
     result_data = {
         "results": all_results,
         "total_samples": len(all_results),
-        "dp_count": len(dp_dirs)
+        "dp_count": len(dp_dirs),
+        "batch_performance": batch_performance
     }
     
     if save_to_file:
@@ -132,7 +203,7 @@ def concat_model_results(output_dir: str, dataset_name: str, model_name: str, fo
     return result_data
 
 def analyze_dataset_difficulty(output_dir: str, dataset_name: str, model_names: Optional[List[str]] = None, 
-                             force_reconcat: bool = False, save_concat: bool = True) -> None:
+                             force_reconcat: bool = False, save_concat: bool = False) -> None:
     """Analyze difficulty distribution for each model separately."""
     dataset_dir = os.path.join(output_dir, dataset_name)
     if not os.path.exists(dataset_dir):
@@ -325,7 +396,7 @@ def main():
     analyze_parser.add_argument('--dataset', type=str, required=True, help='Dataset name')
     analyze_parser.add_argument('--models', type=str, nargs='*', help='Optional: specific models to analyze')
     analyze_parser.add_argument('--force_reconcat', action='store_true', help='Force re-concatenation of results')
-    analyze_parser.add_argument('--no_save_concat', action='store_true', help='Don\'t save concatenated results after analysis')
+    analyze_parser.add_argument('--save_concat', action='store_true', help='Save concatenated results after analysis')
 
     args = parser.parse_args()
 
@@ -333,7 +404,7 @@ def main():
         concat_model_results(args.output_dir, args.dataset, args.model, args.force)
     elif args.command == 'analyze':
         analyze_dataset_difficulty(args.output_dir, args.dataset, args.models, 
-                                 args.force_reconcat, not args.no_save_concat)
+                                 args.force_reconcat, args.save_concat)
     else:
         parser.print_help()
 
