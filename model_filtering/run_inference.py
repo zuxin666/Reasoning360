@@ -6,6 +6,7 @@ import signal
 import multiprocessing
 from multiprocessing import Process
 import torch
+import vllm
 from vllm.utils import get_open_port
 from datetime import datetime
 from rich.panel import Panel
@@ -19,7 +20,9 @@ from model_filtering.pipeline import DifficultyFilterPipeline
 def run_dp_worker(args, dp_rank, dp_size):
     gpu_offset = dp_rank * args.tp_size
     os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(gpu_offset + i) for i in range(args.tp_size))
-    torch.cuda.set_device(0)
+    # Only set device if vllm version is < 0.7.0
+    if tuple(map(int, vllm.__version__.split("."))) < (0, 7, 0):
+        torch.cuda.set_device(0)
 
     os.environ.update(
         {
@@ -45,7 +48,8 @@ def run_dp_worker(args, dp_rank, dp_size):
             f"[bold]Batch size:[/bold] {args.batch_size}\n"
             f"[bold]Generations:[/bold] {args.n}\n"
             f"[bold]Max tokens:[/bold] {args.max_new_tokens}\n"
-            f"[bold]Tensor parallel:[/bold] {args.tp_size}",
+            f"[bold]Tensor parallel:[/bold] {args.tp_size}\n"
+            f"[bold]GPU Device:[/bold] {torch.cuda.current_device()}",
             title="📋 Configuration",
             border_style="cyan",
         )
@@ -83,6 +87,9 @@ def main():
     parser.add_argument("--top_p", type=float, default=0.9)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--repetition_penalty", type=float, default=1.0)
+
+    parser.add_argument("--enable_expert_parallel", type=bool, default=True,
+                       help="Enable expert parallel mode for model initialization (default: True)")
 
     parser.add_argument("--debug", action="store_true")
 

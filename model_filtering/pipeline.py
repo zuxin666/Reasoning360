@@ -45,6 +45,7 @@ class DifficultyFilterPipeline:
         self.model = LLM(
             self.args.model_path,
             tensor_parallel_size=self.args.tp_size,
+            enable_expert_parallel=self.args.enable_expert_parallel,
             enforce_eager=True,
         )
 
@@ -73,23 +74,28 @@ class DifficultyFilterPipeline:
         
         console.print(f"🐞 [DEBUG] Dataset loaded with [highlight]{len(dataset)}[/highlight] samples")
 
-        # Replace None values with empty strings in dataset columns and nested dictionaries
-        def replace_none_with_empty(obj):
-            if obj is None:
-                return ""
-            elif isinstance(obj, dict):
-                return {k: replace_none_with_empty(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [replace_none_with_empty(item) for item in obj]
-            return obj
+        # TODO: replace None values with empty strings in dataset columns and nested dictionaries
+        # TODO: Below sometimes causes stucks in the process
+        # # Replace None values with empty strings in dataset columns and nested dictionaries
+        # def replace_none_with_empty(obj, max_depth=3):
+        #     if obj is None:
+        #         return ""
+        #     elif isinstance(obj, dict) and max_depth > 0:
+        #         return {k: replace_none_with_empty(v, max_depth-1) for k, v in obj.items()}
+        #     elif isinstance(obj, list) and max_depth > 0:
+        #         return [replace_none_with_empty(item, max_depth-1) for item in obj]
+        #     return obj
 
-        def process_example(example):
-            for key in example:
-                example[key] = replace_none_with_empty(example[key])
-            return example
+        # def process_example(example):
+        #     return {k: replace_none_with_empty(v) for k, v in example.items()}
 
-        dataset = dataset.map(process_example)
-        console.print("🧹 Replaced None values with empty strings to avoid errors")
+        # # Use batched processing with multiple workers
+        # dataset = dataset.map(
+        #     process_example,
+        #     num_proc=min(8, os.cpu_count()),
+        #     desc="Processing None values"
+        # )
+        # console.print("🧹 Replaced None values with empty strings using parallel processing")
 
         # ── debug slice
         if self.args.debug:
@@ -300,7 +306,7 @@ class DifficultyFilterPipeline:
             outputs = self.model.chat(
                 [self.extract_messages(batch_dict, i) for i in range(batch_size)],
                 sampling_params=self.sampling_params,
-                use_tqdm=False,
+                use_tqdm=True,
             )
             self.gen_times.append(time.time() - gen_start)
             console.print(f"⏱️  Generation took [time]{self.gen_times[-1]:.2f}s[/time]")
