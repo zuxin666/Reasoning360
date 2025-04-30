@@ -37,6 +37,7 @@ DATASETS_CONFIG = [
     {"domain": "simulation", "name": "codeio", "check_train": True, "check_test": True, "max_length": 4096},
     # table
     {"domain": "table", "name": "multihier", "check_train": True, "check_test": True, "max_length": 4096},
+    {"domain": "table", "name": "hitab", "check_train": True, "check_test": True, "max_length": 4096},
     
     # Add more datasets here as needed
 ]
