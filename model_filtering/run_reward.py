@@ -2,7 +2,12 @@
 """
 Reward-only pass for batched inference
 """
+#!/usr/bin/env python3
+"""
+Reward-only pass for batched inference
+"""
 
+# Standard library imports
 import argparse
 import glob
 import json
@@ -10,11 +15,14 @@ import os
 import signal
 import time
 from datetime import datetime, timedelta
-from multiprocessing import Pool, cpu_count
+from multiprocessing import cpu_count
+from multiprocessing.pool import Pool
 from typing import Optional
 
+# Third party imports
 from tqdm import tqdm
 
+# Local imports
 from verl.utils.reward_score import _default_compute_score
 from model_filtering.utils import console, json_default
 
