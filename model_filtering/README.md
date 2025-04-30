@@ -20,6 +20,7 @@ python model_filtering/run_inference.py \
   --output_dir "./diff_filter_output" \
   --max_prompt_length 2048 \
   --truncation "left" \
+  --enable_expert_parallel False \
   --dp_size 8 \
   --tp_size 1 \
   --node_size 1 \
@@ -28,19 +29,30 @@ python model_filtering/run_inference.py \
   --master_port 0 \
   --batch_size 128 \
   --n 16 \
-  --max_new_tokens 4096
+  --max_new_tokens 4096 \
 ```
 
-#### DeepSeek-R1-Distill-Qwen-32B (~17.5s per data point on leetcode2k)
+#### Qwen3-30B-A3B (~12s per data point on leetcode2k)
+
+> [!IMPORTANT]  
+> To run this model, you have to upgrade vllm to 0.8.5, please run the following command:
+
+```bash
+pip install --upgrade vllm==0.8.5
+```
+
+Then run the following command:
+
 ```bash
 python model_filtering/run_inference.py \
-  --model_path "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B" \
+  --model_path "Qwen/Qwen3-30B-A3B" \
   --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" \
-  --output_dir "./diff_filter_output" \
+  --output_dir "./diff_filter_output_test_speed" \
   --max_prompt_length 2048 \
   --truncation "left" \
-  --dp_size 2 \
-  --tp_size 4 \
+  --dp_size 4 \
+  --tp_size 2 \
+  --enable_expert_parallel True \
   --node_size 1 \
   --node_rank 0 \
   --master_addr "127.0.0.1" \
@@ -49,7 +61,6 @@ python model_filtering/run_inference.py \
   --n 16 \
   --max_new_tokens 32768
 ```
-
 ### Stage 2: Reward Calculation
 
 After the inference stage is complete, run the reward calculation:
@@ -59,8 +70,7 @@ python model_filtering/run_reward.py \
   --model_path "Qwen/Qwen2.5-7B-Instruct" \
   --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" \
   --output_dir "./diff_filter_output" \
-  --reward_workers 64 \
-  --correct_reward_threshold 1.0
+  --reward_workers 64
 ```
 
 ## Checkpoint & Resumption
@@ -85,6 +95,38 @@ The pipeline provides flags to control checkpoint behavior:
 
 After running models with data-parallel processing, you can use the utility functions to concatenate and analyze results.
 
+### Analyzing Results
+
+Analyze difficulty distributions of one or more models:
+
+```bash
+python -m model_filtering.utils analyze \
+  --output_dir "./diff_filter_output" \
+  --dataset "codegen__leetcode2k_2.4k"
+```
+
+Analyze specific models:
+
+```bash
+python -m model_filtering.utils analyze \
+  --output_dir "./diff_filter_output" \
+  --dataset "codegen__leetcode2k_2.4k" \
+  --models "Qwen2.5-7B-Instruct"
+```
+
+Some advanced options:
+- `--force_reconcat`: Force regeneration of concatenated files even if they already exist
+- `--save_concat`: Don't save concatenated results after analysis
+
+The analysis output categorizes problems into seven difficulty levels:
+- Impossible (pass rate exactly 0.0)
+- Very Hard (pass rate 0.0-0.2, exclusive)
+- Hard (pass rate 0.2-0.4)
+- Medium (pass rate 0.4-0.6)
+- Easy (pass rate 0.6-0.8)
+- Very Easy (pass rate 0.8-1.0, exclusive)
+- Perfect (pass rate exactly 1.0)
+
 ### Concatenating Results
 
 For multi-DP runs, results are distributed across multiple directories. The `concat` command gathers all results into a single file:
@@ -98,42 +140,3 @@ python -m model_filtering.utils concat \
 
 Some advanced options:
 - `--force`: Force regeneration of concatenated files even if they already exist
-
-### Analyzing Results
-
-Analyze difficulty distributions of one or more models:
-
-```bash
-python -m model_filtering.utils analyze \
-  --output_dir "./diff_filter_output" \
-  --dataset "codegen__leetcode2k_2.4k" 
-```
-
-Analyze specific models:
-
-```bash
-python -m model_filtering.utils analyze \
-  --output_dir "./diff_filter_output" \
-  --dataset "codegen__leetcode2k_2.4k" \
-  --models "Qwen2.5-7B-Instruct" "Qwen2.5-32B-Instruct"
-```
-
-Some advanced options:
-- `--force_reconcat`: Force regeneration of concatenated files even if they already exist
-- `--save_concat`: Don't save concatenated results after analysis
-
-### Output Files
-
-The utility functions produce the following output files for each model:
-
-- `concatenated_results.json`: Combined results from all DP workers
-- `analysis_results.json`: Statistics and difficulty distribution analysis
-
-The analysis output categorizes problems into seven difficulty levels:
-- Impossible (pass rate exactly 0.0)
-- Very Hard (pass rate 0.0-0.2, exclusive)
-- Hard (pass rate 0.2-0.4)
-- Medium (pass rate 0.4-0.6)
-- Easy (pass rate 0.6-0.8)
-- Very Easy (pass rate 0.8-1.0, exclusive)
-- Perfect (pass rate exactly 1.0)
