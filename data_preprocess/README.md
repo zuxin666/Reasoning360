@@ -79,6 +79,12 @@ uv pip install gdown
 python data_preprocess/table/multihier.py
 ```
 
+## ARC-AGI
+```bash
+python data_preprocess/simulation/arcagi.py --name arcagi1
+python data_preprocess/simulation/arcagi.py --name arcagi2
+```
+
 # Add a new dataset
 1. Add a new script in `data_preprocess/<domain>/<dataset_name>.py`
 2. Add a new entry in `tests/data_process/test_data_preprocess.py`.
