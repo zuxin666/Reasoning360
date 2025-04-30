@@ -5,11 +5,24 @@ The naming convention is `<domain>__<dataset_name>_<dataset_size>`, where `<doma
 
 # Usage
 ## Math
+
+**DAPO+OR1**
+```bash
+python data_preprocess/math/dapo_or1_merge_dedup_apr30.py
+```
+(Please see the comment if want to apply llm as judge)
+> Note:
+> 
+> Original: OR1 (105055) + DAPO (17917)
+>
+> After [dedup](../scripts/tools/cross_dedup.py): 117192
+>
+> After merging and removing instance with too long answer >100 char ([script](../scripts/tools/merge_and_upload_dataset.ipynb)): 116632
+
 **BigMath**
 ```bash
 python data_preprocess/math/bigmath_preview_filtered_mar21.py --train-sample-size <train_sample_size>
 ```
-Note: currently, test sets such as aime24, amc, and math500 are also included within the same data processing file as BigMath. This means you must run the BigMath data pipeline, even if you do not intend to use the BigMath training set, in order to access those test sets.
 
 **DeepScaler**
 ```bash
