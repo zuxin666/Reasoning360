@@ -29,7 +29,7 @@ python model_filtering/run_inference.py \
   --master_port 0 \
   --batch_size 128 \
   --n 16 \
-  --max_new_tokens 4096 \
+  --max_new_tokens 4096
 ```
 
 #### Qwen3-30B-A3B (~12s per data point on leetcode2k)
@@ -47,7 +47,7 @@ Then run the following command:
 python model_filtering/run_inference.py \
   --model_path "Qwen/Qwen3-30B-A3B" \
   --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" \
-  --output_dir "./diff_filter_output_test_speed" \
+  --output_dir "./diff_filter_output" \
   --max_prompt_length 2048 \
   --truncation "left" \
   --dp_size 4 \
