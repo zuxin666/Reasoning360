@@ -88,8 +88,8 @@ def main():
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--repetition_penalty", type=float, default=1.0)
 
-    parser.add_argument("--enable_expert_parallel", type=bool, default=True,
-                       help="Enable expert parallel mode for model initialization (default: True)")
+    parser.add_argument("--enable_expert_parallel", action="store_true",
+                        help="Enable expert parallel mode for model initialization (default: True)")
 
     parser.add_argument("--debug", action="store_true")
 
@@ -108,6 +108,7 @@ def main():
     console.rule("[bold]Difficulty Filter — Inference-only", style="cyan")
     console.print(f"⏰ Start time: {datetime.now():%Y-%m-%d %H:%M:%S}")
     console.rule(style="cyan")
+    
 
     os.makedirs(args.output_dir, exist_ok=True)
     multiprocessing.set_start_method("spawn", force=True)

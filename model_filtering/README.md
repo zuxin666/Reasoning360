@@ -20,7 +20,6 @@ python model_filtering/run_inference.py \
   --output_dir "./diff_filter_output" \
   --max_prompt_length 2048 \
   --truncation "left" \
-  --enable_expert_parallel False \
   --dp_size 8 \
   --tp_size 1 \
   --node_size 1 \
@@ -52,14 +51,14 @@ python model_filtering/run_inference.py \
   --truncation "left" \
   --dp_size 4 \
   --tp_size 2 \
-  --enable_expert_parallel True \
   --node_size 1 \
   --node_rank 0 \
   --master_addr "127.0.0.1" \
   --master_port 0 \
   --batch_size 128 \
   --n 16 \
-  --max_new_tokens 32768
+  --max_new_tokens 32768 \
+  --enable_expert_parallel
 ```
 ### Stage 2: Reward Calculation
 
