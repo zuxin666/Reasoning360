@@ -64,7 +64,7 @@ def make_map_fn(split: str, data_source: str, prompt_style: str="zero_style", re
                 "split": split,
                 "index": idx,
                 "reward_metric": reward_metric,
-                "question": question,
+                "original_question": question,
             },
         }
 
