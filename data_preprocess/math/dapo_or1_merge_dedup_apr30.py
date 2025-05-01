@@ -48,7 +48,7 @@ def get_datasets(cache_dir: str):
     return train_dataset, test_datasets
 
 
-def make_map_fn(split: str, data_source: str, reward_metric: str=None) -> callable:
+def make_map_fn(split: str, data_source: str, reward_metric: str='default') -> callable:
     def process_fn(example: Dict[str, Any], idx: int) -> Dict[str, Any]:
         # if original_question in example, use it as the question
         question = example.pop("problem")
@@ -108,13 +108,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--train-reward-metric",
         type=str,
-        default=None,
+        default="default",
         help="Reward metric to use for training. If None, use the naive_dapo.compute_score.",
     )
     parser.add_argument(
         "--test-reward-metric",
         type=str,
-        default=None,
+        default="default",
         help="Reward metric to use for testing. If None, use the naive_dapo.compute_score.",
     )
     parser.add_argument(

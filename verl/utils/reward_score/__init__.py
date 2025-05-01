@@ -20,11 +20,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     
     if data_source.startswith("math"):
         
-        if reward_metric == "dapo" or reward_metric is None:
-            from . import naive_dapo
-            res = naive_dapo.compute_score(solution_str, ground_truth, extra_info=extra_info)
-    
-        elif reward_metric == "prime_math":
+        if reward_metric == "prime_math":
             from . import prime_math
             res = prime_math.compute_score(solution_str, ground_truth)[0]
 
@@ -34,6 +30,10 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
                 solution_str, ground_truth, extra_info=extra_info
             )
 
+        else:
+            from . import naive_dapo
+            res = naive_dapo.compute_score(solution_str, ground_truth, extra_info=extra_info)
+    
     elif data_source.startswith('codegen'):
         from . import coder1
         res = coder1.compute_score(solution_str, ground_truth, extra_info=extra_info)
