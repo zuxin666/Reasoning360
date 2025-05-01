@@ -18,11 +18,6 @@ from model_filtering.pipeline import DifficultyFilterPipeline
 # Data-parallel worker                                                        #
 # --------------------------------------------------------------------------- #
 def run_dp_worker(args, dp_rank, dp_size):
-    gpu_offset = dp_rank * args.tp_size
-    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(gpu_offset + i) for i in range(args.tp_size))
-    # Only set device if vllm version is < 0.7.0
-    if tuple(map(int, vllm.__version__.split("."))) < (0, 7, 0):
-        torch.cuda.set_device(0)
 
     os.environ.update(
         {
@@ -56,7 +51,8 @@ def run_dp_worker(args, dp_rank, dp_size):
     )
 
     # ---------- Inference only (no reward) --------------------------------- #
-    DifficultyFilterPipeline(args).run_inference()
+    pipeline = DifficultyFilterPipeline(args)
+    pipeline.run_inference()
 
 # --------------------------------------------------------------------------- #
 # CLI / launcher                                                              #
@@ -135,11 +131,15 @@ def main():
             procs.append(p)
 
         exit_code = 0
-        for p in procs:
-            p.join()
-            if p.exitcode not in (None, 0):
-                exit_code = p.exitcode or 1
-        sys.exit(exit_code)
+        for proc in procs:
+            proc.join(timeout=300)
+            if proc.exitcode is None:
+                print(f"Killing process {proc.pid} that "
+                    f"didn't stop within 5 minutes.")
+                proc.kill()
+                exit_code = 1
+            elif proc.exitcode:
+                exit_code = proc.exitcode
 
 
 if __name__ == "__main__":

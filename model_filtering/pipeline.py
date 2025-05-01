@@ -17,7 +17,7 @@ from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 
 # Local imports
-from model_filtering.utils import console, json_default
+from model_filtering.utils import console, json_default, custom_collate_fn
 
 class DifficultyFilterPipeline:
     def __init__(self, args):
@@ -42,6 +42,9 @@ class DifficultyFilterPipeline:
             f"🚀 Initializing model from [highlight]{self.args.model_path}[/highlight] "
             f"with TP={self.args.tp_size}..."
         )
+        console.print(f"Warning: enable_expert_parallel is set to {self.args.enable_expert_parallel}")
+        console.print("If you are using MOE models, set enable_expert_parallel to True")
+        
         self.model = LLM(
             self.args.model_path,
             tensor_parallel_size=self.args.tp_size,
@@ -96,7 +99,7 @@ class DifficultyFilterPipeline:
         #     desc="Processing None values"
         # )
         # console.print("🧹 Replaced None values with empty strings using parallel processing")
-
+            
         # ── debug slice
         if self.args.debug:
             dataset = dataset.select(range(min(48, len(dataset))))
@@ -190,20 +193,6 @@ class DifficultyFilterPipeline:
         
         return {"current_batch_idx": start_batch_idx, "global_results": global_results, "global_errors": global_errors}
 
-    # ------------- message helpers ----------------------------------------- #
-    def extract_messages(self, batch_dict, index):
-        msgs = []
-        if "prompt" in batch_dict:
-            for prompt_dict in batch_dict["prompt"]:
-                if index < len(prompt_dict["role"]) and index < len(prompt_dict["content"]):
-                    msgs.append(
-                        {
-                            "role": prompt_dict["role"][index],
-                            "content": prompt_dict["content"][index],
-                        }
-                    )
-        return msgs
-
     # ------------- batch serialization  ------------------------------------ #
     def process_batch_outputs(self, outputs, batch_dict):
         batch_results = {}
@@ -214,7 +203,7 @@ class DifficultyFilterPipeline:
 
             data_source   = batch_dict["data_source"][i]
             ground_truth  = batch_dict["reward_model"]["ground_truth"][i]
-            messages      = self.extract_messages(batch_dict, i)
+            messages      = batch_dict["prompt"][i]
             question      = next((m["content"] for m in messages if m["role"] == "user"), "No question found")
             extra_info    = {k: batch_dict["extra_info"][k][i] for k in batch_dict["extra_info"]}
 
@@ -262,6 +251,7 @@ class DifficultyFilterPipeline:
             pin_memory=True,
             num_workers=min(4, os.cpu_count() // max(1, self.args.dp_size)),
             prefetch_factor=8,
+            collate_fn=custom_collate_fn
         )
 
         chk = self.load_checkpoint()
@@ -293,8 +283,8 @@ class DifficultyFilterPipeline:
 
         for idx, batch_dict in enumerate(batch_iter, start=start_batch_idx):
             batch_size = len(batch_dict["reward_model"]["ground_truth"])
-            console.print(f"\n🔄 Generating for batch {idx}/{len(dataloader)-1} ({batch_size} samples)…")
-
+            console.print(f"\n🔄 Generating for batch {idx}/{len(dataloader)-1} ({batch_size} samples)…")            
+            
             # enforce apply_chat_template==True
             if not all(batch_dict.get("apply_chat_template", [True] * batch_size)):
                 raise RuntimeError(
@@ -304,10 +294,10 @@ class DifficultyFilterPipeline:
 
             gen_start = time.time()
             outputs = self.model.chat(
-                [self.extract_messages(batch_dict, i) for i in range(batch_size)],
-                sampling_params=self.sampling_params,
-                use_tqdm=True,
+                    batch_dict["prompt"],
+                    sampling_params=self.sampling_params
             )
+            
             self.gen_times.append(time.time() - gen_start)
             console.print(f"⏱️  Generation took [time]{self.gen_times[-1]:.2f}s[/time]")
 
@@ -334,3 +324,6 @@ class DifficultyFilterPipeline:
             "ℹ️ All per-batch JSON files are ready. "
             "Run the separate reward script to score and assemble final results."
         )
+
+        # temporary sleep to avoid closing the process
+        time.sleep(10000)
