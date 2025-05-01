@@ -71,7 +71,7 @@ def make_map_fn(split: str, data_source: str) -> callable:
             "ability": "math",
             "apply_chat_template": True,
             "reward_model": {"style": "rule", "ground_truth": answer},
-            "extra_info": {"split": split, "index": idx},
+            "extra_info": {"split": split, "index": idx, "original_question": question},
         }
         if idx == 0 or idx == 1:
             print(f"data_source: {data_source}, split: {split}, idx: {idx}")

@@ -66,7 +66,7 @@ def make_map_fn(split: str, data_source: str, reward_metric: str='default') -> c
                 "split": split,
                 "index": idx,
                 "reward_metric": reward_metric,
-                "question": question,
+                "original_question": question,
             },
         }
 
