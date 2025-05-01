@@ -40,7 +40,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     elif data_source.startswith("simulation__arcagi"):
         from . import arcagi
         res = arcagi.compute_score(solution_str, ground_truth)
-    elif data_source.startswith("simulation"):
+    elif data_source.startswith("simulation__codeio"):
         from . import codeio
         res = codeio.compute_score(solution_str, ground_truth)
     elif data_source.startswith("table"):
