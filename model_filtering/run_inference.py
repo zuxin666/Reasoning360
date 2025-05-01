@@ -32,6 +32,7 @@ def run_dp_worker(args, dp_rank, dp_size):
     )
     console.print(f"[DP rank {dp_rank}] sees {torch.cuda.device_count()} visible GPU(s).")
 
+
     args.dp_rank = dp_rank
     args.dp_size = dp_size
 
@@ -132,14 +133,15 @@ def main():
 
         exit_code = 0
         for proc in procs:
-            proc.join(timeout=300)
+            proc.join()
             if proc.exitcode is None:
-                print(f"Killing process {proc.pid} that "
-                    f"didn't stop within 5 minutes.")
+                print(f"Killing process {proc.pid}")
                 proc.kill()
                 exit_code = 1
             elif proc.exitcode:
                 exit_code = proc.exitcode
+        
+        exit(exit_code)
 
 
 if __name__ == "__main__":
