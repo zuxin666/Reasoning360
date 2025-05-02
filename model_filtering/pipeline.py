@@ -5,12 +5,14 @@ import glob
 import json
 import os
 import time
+import datetime
 from datetime import timedelta
 
 # Third party imports
 import numpy as np
 from datasets import Dataset
 from rich.panel import Panel
+from rich.table import Table
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer
@@ -35,15 +37,15 @@ class DifficultyFilterPipeline:
 
     # ------------- component init ------------------------------------------ #
     def initialize_components(self):
-        console.print(f"🔄 Loading tokenizer from [highlight]{self.args.model_path}[/highlight]...")
+        console.print(f"🔄 [DP-{self.args.dp_rank}] Loading tokenizer from [highlight]{self.args.model_path}[/highlight]...")
         self.tokenizer = AutoTokenizer.from_pretrained(self.args.model_path)
 
         console.print(
-            f"🚀 Initializing model from [highlight]{self.args.model_path}[/highlight] "
+            f"🚀 [DP-{self.args.dp_rank}] Initializing model from [highlight]{self.args.model_path}[/highlight] "
             f"with TP={self.args.tp_size}..."
         )
-        console.print(f"Warning: enable_expert_parallel is set to {self.args.enable_expert_parallel}")
-        console.print("If you are using MOE models, set enable_expert_parallel to True")
+        console.print(f"[DP-{self.args.dp_rank}] Warning: enable_expert_parallel is set to {self.args.enable_expert_parallel}")
+        console.print("[DP-{self.args.dp_rank}] If you are using MOE models, set enable_expert_parallel to True")
         
         self.model = LLM(
             self.args.model_path,
@@ -61,7 +63,7 @@ class DifficultyFilterPipeline:
             repetition_penalty=self.args.repetition_penalty,
             skip_special_tokens=True,
         )
-        console.print("✅ Model initialization [success]complete[/success].")
+        console.print(f"✅ [DP-{self.args.dp_rank}] Model initialization [success]complete[/success].")
 
     # ------------- dataset -------------------------------------------------- #
     def prepare_dataset(self):
@@ -240,6 +242,76 @@ class DifficultyFilterPipeline:
         if self.gen_times:
             console.print(f"⚡ Generation avg (last 10): [metric]{np.mean(self.gen_times[-10:]):.2f}s[/metric]")
 
+    def wait_for_all_ranks(self, base_output_dir):
+        """
+        Wait for all DP ranks to complete their processing.
+        
+        Args:
+            base_output_dir: Base directory for all DP ranks output
+        """
+        if self.args.dp_size <= 1:
+            return
+            
+        console.print(f"\n⏳ [DP-{self.args.dp_rank}] Waiting for all DP ranks to complete...\n")
+        
+        # Each rank checks for completion files from all other ranks
+        all_ranks_ready = False
+        sleep_time = 5  # Start with 5 seconds
+        max_sleep_time = 60  # Maximum sleep time of 60 seconds
+        check_count = 0
+        
+        while not all_ranks_ready:
+            # Check if all ranks have completed
+            completed_ranks = []
+            missing_ranks = []
+            
+            for rank in range(self.args.dp_size):
+                rank_dir = os.path.join(base_output_dir, f"dp{rank}")
+                rank_completion_file = os.path.join(rank_dir, "RANK_COMPLETE")
+                if os.path.exists(rank_completion_file):
+                    completed_ranks.append(rank)
+                else:
+                    missing_ranks.append(rank)
+            
+            if len(completed_ranks) == self.args.dp_size:
+                all_ranks_ready = True
+                
+                # Create a nice table summarizing all ranks
+                table = Table(title=f"[DP-{self.args.dp_rank}] DP Ranks Completion Status")
+                table.add_column("Rank", style="cyan")
+                table.add_column("Status", style="green")
+                
+                for rank in range(self.args.dp_size):
+                    table.add_row(f"DP-{rank}", "✅ Complete")
+                
+                console.print(table)
+                console.print(f"\n✅ [DP-{self.args.dp_rank}] All {self.args.dp_size} DP ranks have completed their work")
+                break
+            
+            # Create a table showing status of all ranks
+            table = Table(title=f"[DP-{self.args.dp_rank}] DP Ranks Completion Status")
+            table.add_column("Rank", style="cyan")
+            table.add_column("Status", style="green")
+            table.add_column("Wait Time", style="blue")
+            
+            for rank in range(self.args.dp_size):
+                if rank in completed_ranks:
+                    table.add_row(f"DP-{rank}", "✅ Complete", "-")
+                else:
+                    table.add_row(f"DP-{rank}", "⏳ Waiting", f"{sleep_time}s")
+            
+            console.print(table)
+            console.print(f"\n⏳ [DP-{self.args.dp_rank}] Waiting for {len(missing_ranks)} rank(s) to complete... ({len(completed_ranks)}/{self.args.dp_size} done)")
+            console.print(f"   [DP-{self.args.dp_rank}] Missing: {', '.join(f'DP-{r}' for r in missing_ranks)}")
+            console.print(f"   [DP-{self.args.dp_rank}] Sleep time: {sleep_time}s (increases by 5s each check, max 60s)")
+            
+            # Sleep with adaptive time
+            time.sleep(sleep_time)
+            
+            # Increase sleep time for next iteration
+            check_count += 1
+            sleep_time = min(5 + (check_count * 5), max_sleep_time)  # Add 5s each time, cap at max_sleep_time
+
     # ------------- main loop ------------------------------------------------ #
     def run_inference(self):
         self.initialize_components()
@@ -278,12 +350,12 @@ class DifficultyFilterPipeline:
             try:
                 next(batch_iter)
             except StopIteration:
-                console.print(f"⚠️ [warning]Checkpoint index {start_batch_idx} exceeds dataset size[/warning]")
+                console.print(f"⚠️ [DP-{self.args.dp_rank}] [warning]Checkpoint index {start_batch_idx} exceeds dataset size[/warning]")
                 break
 
         for idx, batch_dict in enumerate(batch_iter, start=start_batch_idx):
             batch_size = len(batch_dict["reward_model"]["ground_truth"])
-            console.print(f"\n🔄 Generating for batch {idx}/{len(dataloader)-1} ({batch_size} samples)…")            
+            console.print(f"\n🔄 [DP-{self.args.dp_rank}] Generating for batch {idx}/{len(dataloader)-1} ({batch_size} samples)…")            
             
             # enforce apply_chat_template==True
             if not all(batch_dict.get("apply_chat_template", [True] * batch_size)):
@@ -299,7 +371,7 @@ class DifficultyFilterPipeline:
             )
             
             self.gen_times.append(time.time() - gen_start)
-            console.print(f"⏱️  Generation took [time]{self.gen_times[-1]:.2f}s[/time]")
+            console.print(f"⏱️  [DP-{self.args.dp_rank}] Generation took [time]{self.gen_times[-1]:.2f}s[/time]")
 
             # ----------- store outputs ------------------------- #
             batch_results = self.process_batch_outputs(outputs, batch_dict)
@@ -308,7 +380,7 @@ class DifficultyFilterPipeline:
             batch_out = os.path.join(rank_output_dir, f"batch_{idx:05d}.json")
             with open(batch_out, "w") as f:
                 json.dump(batch_results, f, indent=2, default=json_default)
-            console.print(f"💾 Saved batch results to [highlight]{batch_out}[/highlight]")
+            console.print(f"💾 [DP-{self.args.dp_rank}] Saved batch results to [highlight]{batch_out}[/highlight]")
 
             self.print_progress_stats(idx, len(dataloader))
             progress_bar.update(1)
@@ -318,12 +390,25 @@ class DifficultyFilterPipeline:
         elapsed_total = time.time() - self.start_time
 
         console.print()
-        console.print(Panel("[bold]Inference completed!", title="🏁 Finished", border_style="green"))
-        console.print(f"⏱️  Total time: [time]{self.format_time(elapsed_total)}[/time]")
+        console.print(Panel(f"[bold][DP-{self.args.dp_rank}] Inference completed!", title="🏁 Finished", border_style="green"))
+        console.print(f"⏱️  [DP-{self.args.dp_rank}] Total time: [time]{self.format_time(elapsed_total)}[/time]")
         console.print(
-            "ℹ️ All per-batch JSON files are ready. "
+            f"ℹ️ [DP-{self.args.dp_rank}] All per-batch JSON files are ready. "
             "Run the separate reward script to score and assemble final results."
         )
-
-        # temporary sleep to avoid closing the process
-        time.sleep(10000)
+        
+        # Create a completion marker for this rank
+        model_name = self.args.model_path.split("/")[-1]
+        dataset_name = os.path.basename(self.args.dataset_parquet_path).rsplit(".parquet", 1)[0]
+        base_output_dir = os.path.join(self.args.output_dir, dataset_name, model_name)
+        completion_file = os.path.join(rank_output_dir, "RANK_COMPLETE")
+        with open(completion_file, 'w') as f:
+            f.write(f"Completed at {datetime.datetime.now().isoformat()}")
+        
+        console.print(f"✅ [DP-{self.args.dp_rank}] Created completion marker for DP rank {self.args.dp_rank}")
+        
+        # Wait for all DP ranks to complete if needed
+        if self.args.dp_size > 1:
+            self.wait_for_all_ranks(base_output_dir)
+            
+        console.print(f"🏁 [DP-{self.args.dp_rank}] Process complete!")
