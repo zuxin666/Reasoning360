@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 
 # Standard library imports
-import glob
+import datetime
 import json
 import os
 import time
-import datetime
+import traceback
 from datetime import timedelta
 
-# Third party imports
+# Third party imports 
 import numpy as np
-from datasets import Dataset
 from rich.panel import Panel
 from rich.table import Table
 from torch.utils.data import DataLoader
@@ -22,14 +21,17 @@ from vllm import LLM, SamplingParams
 from model_filtering.utils import console, json_default, custom_collate_fn
 
 class DifficultyFilterPipeline:
-    def __init__(self, args):
+    def __init__(self, args, dataset):
         self.args = args
+        self.dataset = dataset
         self.tokenizer = None
         self.model = None
         self.sampling_params = None
 
         self.start_time = time.time()
         self.gen_times = []
+        
+        self.args.skip_percentage = getattr(self.args, 'skip_percentage', 0.0)
 
     @staticmethod
     def format_time(seconds):
@@ -37,15 +39,15 @@ class DifficultyFilterPipeline:
 
     # ------------- component init ------------------------------------------ #
     def initialize_components(self):
-        console.print(f"🔄 [DP-{self.args.dp_rank}] Loading tokenizer from [highlight]{self.args.model_path}[/highlight]...")
+        console.print(f"🔄 Loading tokenizer from [highlight]{self.args.model_path}[/highlight]...")
         self.tokenizer = AutoTokenizer.from_pretrained(self.args.model_path)
 
         console.print(
-            f"🚀 [DP-{self.args.dp_rank}] Initializing model from [highlight]{self.args.model_path}[/highlight] "
+            f"🚀 Initializing model from [highlight]{self.args.model_path}[/highlight]"
             f"with TP={self.args.tp_size}..."
         )
-        console.print(f"[DP-{self.args.dp_rank}] Warning: enable_expert_parallel is set to {self.args.enable_expert_parallel}")
-        console.print("[DP-{self.args.dp_rank}] If you are using MOE models, set enable_expert_parallel to True")
+        console.print(f"Warning: enable_expert_parallel is set to {self.args.enable_expert_parallel}")
+        console.print("If you are using MOE models, set enable_expert_parallel to True")
         
         self.model = LLM(
             self.args.model_path,
@@ -53,7 +55,6 @@ class DifficultyFilterPipeline:
             enable_expert_parallel=self.args.enable_expert_parallel,
             enforce_eager=True,
         )
-
         self.sampling_params = SamplingParams(
             n=self.args.n,
             max_tokens=self.args.max_new_tokens,
@@ -62,22 +63,17 @@ class DifficultyFilterPipeline:
             temperature=self.args.temperature,
             repetition_penalty=self.args.repetition_penalty,
             skip_special_tokens=True,
+            truncate_prompt_tokens=self.args.max_prompt_length
         )
-        console.print(f"✅ [DP-{self.args.dp_rank}] Model initialization [success]complete[/success].")
+        console.print("✅ Model initialization [success]complete[/success].")
 
     # ------------- dataset -------------------------------------------------- #
     def prepare_dataset(self):
         console.print(f"📂 Loading dataset from [highlight]{self.args.dataset_parquet_path}[/highlight]...")
-        if "livecodebench" in self.args.dataset_parquet_path:
-            # livecodebench is too long so we need a different way to load it
-            import polars as pl
-            console.print(f"🐞 [DEBUG] Loading livecodebench dataset using polars")
-            pd_data = pl.read_parquet(self.args.dataset_parquet_path).to_pandas()
-            dataset = Dataset.from_pandas(pd_data)
-        else:
-            dataset = Dataset.from_parquet(self.args.dataset_parquet_path)
-        
-        console.print(f"🐞 [DEBUG] Dataset loaded with [highlight]{len(dataset)}[/highlight] samples")
+        console.print(f"🐞 [DEBUG] Dataset loaded with [highlight]{len(self.dataset)}[/highlight] samples")
+
+        assert self.dataset is None
+
 
         # TODO: replace None values with empty strings in dataset columns and nested dictionaries
         # TODO: Below sometimes causes stucks in the process
@@ -104,22 +100,8 @@ class DifficultyFilterPipeline:
             
         # ── debug slice
         if self.args.debug:
-            dataset = dataset.select(range(min(48, len(dataset))))
-            console.print(f"🐞 [DEBUG] Using first [highlight]{len(dataset)}[/highlight] samples")
-
-        # ── DP split
-        if self.args.dp_size > 1:
-            total = len(dataset)
-            per_rank = total // self.args.dp_size
-            start = self.args.dp_rank * per_rank
-            end = start + per_rank if self.args.dp_rank != self.args.dp_size - 1 else total
-            dataset = dataset.select(range(start, end))
-            console.print(
-                f"🔢 DP rank [highlight]{self.args.dp_rank}[/highlight] "
-                f"processing [highlight]{len(dataset)}[/highlight] / {total}"
-            )
-        else:
-            console.print(f"📊 Dataset loaded with [highlight]{len(dataset)}[/highlight] samples")
+            self.dataset = self.dataset.select(range(min(48, len(self.dataset))))
+            console.print(f"🐞 [DEBUG] Using first [highlight]{len(self.dataset)}[/highlight] samples")
 
         # ── KEEP-ONLY columns actually referenced downstream ---------------- #
         required_cols = {
@@ -129,95 +111,91 @@ class DifficultyFilterPipeline:
             "data_source",
             "extra_info",
         }
-        cols_to_drop = [c for c in dataset.column_names if c not in required_cols]
+        cols_to_drop = [c for c in self.dataset.column_names if c not in required_cols]
         if cols_to_drop:
-            dataset = dataset.remove_columns(cols_to_drop)
+            self.dataset = self.dataset.remove_columns(cols_to_drop)
             console.print(f"🧹 Dropped {len(cols_to_drop)} column(s) for easier processing: {', '.join(cols_to_drop)}")
 
-        return dataset
-
-    # ------------- checkpoint paths / I-O ------------------------------ #
-    def get_checkpoint_path(self):
+    # ------------- output directory / checkpoint handling ------------------ #
+    def get_rank_output_dir(self):
+        """Get the output directory for the current rank"""
         model_name = self.args.model_path.split("/")[-1]
         dataset_name = os.path.basename(self.args.dataset_parquet_path).rsplit(".parquet", 1)[0]
         rank_output_dir = os.path.join(self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}")
         os.makedirs(rank_output_dir, exist_ok=True)
-        return os.path.join(rank_output_dir, "checkpoint.pkl")
+        return rank_output_dir
 
-    def load_checkpoint(self):
-        model_name = self.args.model_path.split("/")[-1]
-        dataset_name = os.path.basename(self.args.dataset_parquet_path).rsplit(".parquet", 1)[0]
-        rank_output_dir = os.path.join(self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}")
-        os.makedirs(rank_output_dir, exist_ok=True)
-        
-        # If force_regenerate is set, start from scratch
-        if self.args.force_regenerate:
-            console.print("🔄 [warning]Force regeneration requested - ignoring existing checkpoints[/warning]")
-            return {"current_batch_idx": 0, "global_results": {}, "global_errors": {}}
-        
-        # Find batch files and extract their numbers
-        batch_files = glob.glob(os.path.join(rank_output_dir, "batch_*.json"))
-        batch_files_with_idx = []
-        
-        for batch_file in batch_files:
-            try:
-                batch_num = int(os.path.basename(batch_file).split("_")[1].split(".")[0])
-                batch_files_with_idx.append((batch_num, batch_file))
-            except (ValueError, IndexError):
-                console.print(f"⚠️ [warning]Could not parse batch number from {batch_file}[/warning]")
-        
-        # Sort by batch number
-        batch_files_with_idx.sort(key=lambda x: x[0])
-        
-        # Load results from existing batch files
-        global_results = {}
-        global_errors = {}
-        
-        if batch_files_with_idx:
-            console.print(f"📋 Found {len(batch_files_with_idx)} existing batch files to load")
-            
-            for batch_idx, batch_file in batch_files_with_idx:
-                try:
-                    with open(batch_file, 'r') as f:
-                        batch_data = json.load(f)
-                    # Directly load results (no reward info expected here)
-                    for i, result in batch_data.items():
-                        global_results[f"{batch_idx}_{i}"] = result
-                    console.print(f"✅ Loaded batch {batch_idx} with {len(batch_data)} results")
-                except Exception as e:
-                    console.print(f"⚠️ [warning]Failed to load batch file {batch_file}: {e}[/warning]")
-        
-        # Determine the next batch index to start from
-        start_batch_idx = batch_files_with_idx[-1][0] + 1 if batch_files_with_idx else 0
-        
-        if batch_files_with_idx:
-            console.print(f"📋 Resuming from batch {start_batch_idx} with {len(global_results)} loaded results")
-        
-        return {"current_batch_idx": start_batch_idx, "global_results": global_results, "global_errors": global_errors}
+    def batch_exists(self, batch_idx):
+        """Check if a specific batch has already been processed"""
+        rank_output_dir = self.get_rank_output_dir()
+        batch_file = os.path.join(rank_output_dir, f"batch_{batch_idx:05d}.json")
+        return os.path.exists(batch_file) and not self.args.force_regenerate
+
+    def get_processed_batches_count(self):
+        """Count the number of already processed batches"""
+        rank_output_dir = self.get_rank_output_dir()
+        batch_files = [f for f in os.listdir(rank_output_dir) 
+                      if f.startswith("batch_") and f.endswith(".json")]
+        return len(batch_files)
 
     # ------------- batch serialization  ------------------------------------ #
     def process_batch_outputs(self, outputs, batch_dict):
         batch_results = {}
+        console.print(f"DP{self.args.dp_rank} Begin to process {len(outputs)} samples")
+
+        tokenizer = self.model.get_tokenizer()
+        MAX_LEN = self.args.max_prompt_length
 
         for i in range(len(outputs)):
-            # full model outputs
-            full_responses = [r.text for r in outputs[i].outputs]
+            messages = batch_dict["prompt"][i]
+            text = "".join(m["content"] for m in messages)
+            token_len = len(tokenizer(text).input_ids)
 
-            data_source   = batch_dict["data_source"][i]
-            ground_truth  = batch_dict["reward_model"]["ground_truth"][i]
-            messages      = batch_dict["prompt"][i]
-            question      = next((m["content"] for m in messages if m["role"] == "user"), "No question found")
-            extra_info    = {k: batch_dict["extra_info"][k][i] for k in batch_dict["extra_info"]}
+            # build extra_info, adding flags and lengths
+            extra_info = {k: batch_dict["extra_info"][k][i]
+                        for k in batch_dict["extra_info"]}
+            extra_info["too_long"] = (token_len > MAX_LEN)
+            extra_info["token_length"] = token_len
 
-            batch_results[i] = {
-                "messages":    messages,
-                "question":    question,
-                "ground_truth": ground_truth,
-                "source":      data_source,
-                "responses":   full_responses,
-                "extra_info":  extra_info,
-            }
+            try:
+                # collect model outputs
+                full_responses = [r.text for r in outputs[i].outputs]
 
+                # compute mean response length in tokens
+                if full_responses:
+                    resp_token_counts = [
+                        len(tokenizer(resp).input_ids) for resp in full_responses
+                    ]
+                    mean_resp_len = sum(resp_token_counts) / len(resp_token_counts)
+                else:
+                    mean_resp_len = 0.0
+                extra_info["response_mean_length"] = mean_resp_len
+
+                data_source  = batch_dict["data_source"][i]
+                if "zebra" in self.args.dataset_parquet_path:
+                    ground_truth = ""
+                else:
+                    ground_truth = batch_dict["reward_model"]["ground_truth"][i]
+                question     = next((m["content"] for m in messages if m["role"] == "user"),
+                                    "No question found")
+
+                batch_results[i] = {
+                    "messages":     messages,
+                    "question":     question,
+                    "ground_truth": ground_truth,
+                    "source":       data_source,
+                    "responses":    full_responses,
+                    "extra_info":   extra_info,
+                }
+
+                if token_len > MAX_LEN:
+                    console.print(f"⚠️ Sample {i} is over-length ({token_len} tokens); marked in extra_info.")
+
+            except Exception as e:
+                console.print(f"❌ Error processing sample {i}: {e}")
+                console.print(traceback.format_exc())
+
+        console.print(f"✅ Finished processing. Kept {len(batch_results)} / {len(outputs)} samples.")
         return batch_results
 
     # ------------- progress ------------------------------------------------- #
@@ -242,83 +220,111 @@ class DifficultyFilterPipeline:
         if self.gen_times:
             console.print(f"⚡ Generation avg (last 10): [metric]{np.mean(self.gen_times[-10:]):.2f}s[/metric]")
 
-    def wait_for_all_ranks(self, base_output_dir):
+    def check_all_ranks_completed(self, base_output_dir):
         """
-        Wait for all DP ranks to complete their processing.
+        Check if all DP ranks have completed their processing.
         
         Args:
             base_output_dir: Base directory for all DP ranks output
+            
+        Returns:
+            tuple: (is_complete, completed_ranks, missing_ranks)
+        """
+        if self.args.dp_size <= 1:
+            return True, [0], []
+            
+        completed_ranks = []
+        missing_ranks = []
+        
+        for rank in range(self.args.dp_size):
+            rank_dir = os.path.join(base_output_dir, f"dp{rank}")
+            rank_completion_file = os.path.join(rank_dir, "RANK_COMPLETE")
+            if os.path.exists(rank_completion_file):
+                completed_ranks.append(rank)
+            else:
+                missing_ranks.append(rank)
+        
+        return len(completed_ranks) == self.args.dp_size, completed_ranks, missing_ranks
+
+    def busy_wait_for_all_ranks(self, base_output_dir, dataloader):
+        """
+        Wait for all DP ranks to complete their processing while keeping the process active.
+        Instead of sleeping, this will continue running inference without saving results.
+        
+        Args:
+            base_output_dir: Base directory for all DP ranks output
+            dataloader: The dataloader to use for busy waiting
         """
         if self.args.dp_size <= 1:
             return
             
-        console.print(f"\n⏳ [DP-{self.args.dp_rank}] Waiting for all DP ranks to complete...\n")
+        console.print(f"\n⏳ [DP-{self.args.dp_rank}] Waiting for all DP ranks to complete with busy waiting...\n")
         
-        # Each rank checks for completion files from all other ranks
-        all_ranks_ready = False
-        sleep_time = 5  # Start with 5 seconds
-        max_sleep_time = 60  # Maximum sleep time of 60 seconds
-        check_count = 0
+        check_interval = 60  # Check status every 60 seconds
+        last_check_time = time.time()
         
-        while not all_ranks_ready:
-            # Check if all ranks have completed
-            completed_ranks = []
-            missing_ranks = []
-            
-            for rank in range(self.args.dp_size):
-                rank_dir = os.path.join(base_output_dir, f"dp{rank}")
-                rank_completion_file = os.path.join(rank_dir, "RANK_COMPLETE")
-                if os.path.exists(rank_completion_file):
-                    completed_ranks.append(rank)
+        # Create an iterator over the dataloader that loops continuously
+        busy_iter = iter(dataloader)
+        
+        while True:
+            # Check if all ranks have completed (but not too frequently)
+            current_time = time.time()
+            if current_time - last_check_time >= check_interval:
+                all_ready, completed_ranks, missing_ranks = self.check_all_ranks_completed(base_output_dir)
+                last_check_time = current_time
+                
+                if all_ready:
+                    # Create a nice table summarizing all ranks
+                    table = Table(title=f"[DP-{self.args.dp_rank}] DP Ranks Completion Status")
+                    table.add_column("Rank", style="cyan")
+                    table.add_column("Status", style="green")
+                    
+                    for rank in range(self.args.dp_size):
+                        table.add_row(f"DP-{rank}", "✅ Complete")
+                    
+                    console.print(table)
+                    console.print(f"\n✅ [DP-{self.args.dp_rank}] All {self.args.dp_size} DP ranks have completed their work")
+                    break
                 else:
-                    missing_ranks.append(rank)
+                    # Create a table showing status of all ranks
+                    table = Table(title=f"[DP-{self.args.dp_rank}] DP Ranks Completion Status")
+                    table.add_column("Rank", style="cyan")
+                    table.add_column("Status", style="green")
+                    
+                    for rank in range(self.args.dp_size):
+                        if rank in completed_ranks:
+                            table.add_row(f"DP-{rank}", "✅ Complete")
+                        else:
+                            table.add_row(f"DP-{rank}", "⏳ Waiting")
+                    
+                    console.print(table)
+                    console.print(f"\n⏳ [DP-{self.args.dp_rank}] Waiting for {len(missing_ranks)} rank(s) to complete... ({len(completed_ranks)}/{self.args.dp_size} done)")
+                    console.print(f"   [DP-{self.args.dp_rank}] Missing: {', '.join(f'DP-{r}' for r in missing_ranks)}")
+                    console.print(f"   [DP-{self.args.dp_rank}] Continuing to run inference without saving to stay active")
             
-            if len(completed_ranks) == self.args.dp_size:
-                all_ranks_ready = True
+            # Do some work to keep the process active
+            try:
+                batch_dict = next(busy_iter)
+            except StopIteration:
+                # Reset the iterator if we reach the end
+                busy_iter = iter(dataloader)
+                batch_dict = next(busy_iter)
                 
-                # Create a nice table summarizing all ranks
-                table = Table(title=f"[DP-{self.args.dp_rank}] DP Ranks Completion Status")
-                table.add_column("Rank", style="cyan")
-                table.add_column("Status", style="green")
-                
-                for rank in range(self.args.dp_size):
-                    table.add_row(f"DP-{rank}", "✅ Complete")
-                
-                console.print(table)
-                console.print(f"\n✅ [DP-{self.args.dp_rank}] All {self.args.dp_size} DP ranks have completed their work")
-                break
-            
-            # Create a table showing status of all ranks
-            table = Table(title=f"[DP-{self.args.dp_rank}] DP Ranks Completion Status")
-            table.add_column("Rank", style="cyan")
-            table.add_column("Status", style="green")
-            table.add_column("Wait Time", style="blue")
-            
-            for rank in range(self.args.dp_size):
-                if rank in completed_ranks:
-                    table.add_row(f"DP-{rank}", "✅ Complete", "-")
-                else:
-                    table.add_row(f"DP-{rank}", "⏳ Waiting", f"{sleep_time}s")
-            
-            console.print(table)
-            console.print(f"\n⏳ [DP-{self.args.dp_rank}] Waiting for {len(missing_ranks)} rank(s) to complete... ({len(completed_ranks)}/{self.args.dp_size} done)")
-            console.print(f"   [DP-{self.args.dp_rank}] Missing: {', '.join(f'DP-{r}' for r in missing_ranks)}")
-            console.print(f"   [DP-{self.args.dp_rank}] Sleep time: {sleep_time}s (increases by 5s each check, max 60s)")
-            
-            # Sleep with adaptive time
-            time.sleep(sleep_time)
-            
-            # Increase sleep time for next iteration
-            check_count += 1
-            sleep_time = min(5 + (check_count * 5), max_sleep_time)  # Add 5s each time, cap at max_sleep_time
+            # Run inference on a batch but don't save the results
+            console.print(f"\n🔄 [DP-{self.args.dp_rank}] Running busy-wait inference to stay active (results won't be saved)...")
+            outputs = self.model.chat(
+                batch_dict["prompt"],
+                sampling_params=self.sampling_params,
+                use_tqdm=False
+            )
+            console.print(f"✅ [DP-{self.args.dp_rank}] Completed busy-wait inference")
 
     # ------------- main loop ------------------------------------------------ #
     def run_inference(self):
         self.initialize_components()
-        dataset = self.prepare_dataset()
 
         dataloader = DataLoader(
-            dataset,
+            self.dataset,
             batch_size=self.args.batch_size,
             pin_memory=True,
             num_workers=min(4, os.cpu_count() // max(1, self.args.dp_size)),
@@ -326,17 +332,26 @@ class DifficultyFilterPipeline:
             collate_fn=custom_collate_fn
         )
 
-        chk = self.load_checkpoint()
-        start_batch_idx = chk["current_batch_idx"]
-        global_results  = chk["global_results"]
-        global_errors   = chk["global_errors"]
-
-        model_name   = self.args.model_path.split("/")[-1]
+        total_batches = len(dataloader)
+        
+        # Get the rank output directory
+        model_name = self.args.model_path.split("/")[-1]
         dataset_name = os.path.basename(self.args.dataset_parquet_path).rsplit(".parquet", 1)[0]
-        rank_output_dir = os.path.join(
-            self.args.output_dir, dataset_name, model_name, f"dp{self.args.dp_rank}"
-        )
-        os.makedirs(rank_output_dir, exist_ok=True)
+        rank_output_dir = self.get_rank_output_dir()
+        
+        # Determine starting batch index
+        if self.args.skip_percentage > 0:
+            start_batch_idx = int(total_batches * self.args.skip_percentage)
+            console.print(f"⏩ [DP-{self.args.dp_rank}] Skipping to {self.args.skip_percentage*100:.0f}% of batches (batch {start_batch_idx}/{total_batches})")
+        else:
+            start_batch_idx = 0
+            
+        # Count already processed batches for logging
+        processed_count = self.get_processed_batches_count()
+        if processed_count > 0 and not self.args.force_regenerate:
+            console.print(f"📋 [DP-{self.args.dp_rank}] Found {processed_count} already processed batches")
+        elif self.args.force_regenerate:
+            console.print(f"🔄 [DP-{self.args.dp_rank}] [warning]Force regeneration requested - ignoring existing batch files[/warning]")
 
         progress_bar = tqdm(
             total=len(dataloader),
@@ -344,16 +359,25 @@ class DifficultyFilterPipeline:
             desc=f"🔄 DP{self.args.dp_rank} Processing",
             position=0,
         )
-
+        
+        # Skip to the starting batch
         batch_iter = iter(dataloader)
         for _ in range(start_batch_idx):
             try:
                 next(batch_iter)
             except StopIteration:
-                console.print(f"⚠️ [DP-{self.args.dp_rank}] [warning]Checkpoint index {start_batch_idx} exceeds dataset size[/warning]")
+                console.print(f"⚠️ [DP-{self.args.dp_rank}] [warning]Skip index {start_batch_idx} exceeds dataset size[/warning]")
                 break
 
+        # Process each batch with smart checkpoint checking
         for idx, batch_dict in enumerate(batch_iter, start=start_batch_idx):
+            # Check if this specific batch has already been processed
+            if self.batch_exists(idx):
+                console.print(f"\n⏩ [DP-{self.args.dp_rank}] Batch {idx} already exists, skipping...")
+                progress_bar.update(1)
+                continue
+            
+            # Batch doesn't exist, process it
             batch_size = len(batch_dict["reward_model"]["ground_truth"])
             console.print(f"\n🔄 [DP-{self.args.dp_rank}] Generating for batch {idx}/{len(dataloader)-1} ({batch_size} samples)…")            
             
@@ -375,7 +399,6 @@ class DifficultyFilterPipeline:
 
             # ----------- store outputs ------------------------- #
             batch_results = self.process_batch_outputs(outputs, batch_dict)
-            global_results.update({f"{idx}_{i}": r for i, r in batch_results.items()})
 
             batch_out = os.path.join(rank_output_dir, f"batch_{idx:05d}.json")
             with open(batch_out, "w") as f:
@@ -407,8 +430,8 @@ class DifficultyFilterPipeline:
         
         console.print(f"✅ [DP-{self.args.dp_rank}] Created completion marker for DP rank {self.args.dp_rank}")
         
-        # Wait for all DP ranks to complete if needed
+        # Use busy waiting instead of idle sleep for waiting for all ranks
         if self.args.dp_size > 1:
-            self.wait_for_all_ranks(base_output_dir)
+            self.busy_wait_for_all_ranks(base_output_dir, dataloader)
             
         console.print(f"🏁 [DP-{self.args.dp_rank}] Process complete!")

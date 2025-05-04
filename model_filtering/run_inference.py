@@ -13,11 +13,12 @@ from rich.panel import Panel
 
 from model_filtering.utils import console
 from model_filtering.pipeline import DifficultyFilterPipeline
+from datasets import Dataset
 
 # --------------------------------------------------------------------------- #
 # Data-parallel worker                                                        #
 # --------------------------------------------------------------------------- #
-def run_dp_worker(args, dp_rank, dp_size):
+def run_dp_worker(args, dp_rank, dp_size, dataset):
 
     os.environ.update(
         {
@@ -52,7 +53,7 @@ def run_dp_worker(args, dp_rank, dp_size):
     )
 
     # ---------- Inference only (no reward) --------------------------------- #
-    pipeline = DifficultyFilterPipeline(args)
+    pipeline = DifficultyFilterPipeline(args, dataset)
     pipeline.run_inference()
 
 # --------------------------------------------------------------------------- #
@@ -71,7 +72,7 @@ def main():
     parser.add_argument("--dataset_parquet_path", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="./diff_filter_output")
 
-    parser.add_argument("--max_prompt_length", type=int, default=2048)
+    parser.add_argument("--max_prompt_length", type=int, default=4096)
     parser.add_argument(
         "--truncation", type=str, default="error", choices=["left", "right", "error"]
     )
@@ -92,6 +93,9 @@ def main():
 
     parser.add_argument("--force_regenerate", action="store_true",
                         help="Force regeneration of outputs for all data, ignoring previously saved results")
+
+    parser.add_argument("--skip_percentage", type=float, default=0.0,
+                        help="Skip to this percentage (0.0-1.0) of the dataset (e.g., 0.6 for 60%)")
 
     parser.add_argument("--dp_size", type=int, default=1)
     parser.add_argument("--tp_size", type=int, default=1)
@@ -120,14 +124,41 @@ def main():
     assert args.dp_size % args.node_size == 0
     dp_per_node = args.dp_size // args.node_size
 
+    #---Load dataset at main process 
+    if "livecodebench" in args.dataset_parquet_path:
+        import polars as pl
+        console.print(f"🐞 [DEBUG] Loading livecodebench dataset using polars")
+        pd_data = pl.read_parquet(args.dataset_parquet_path).to_pandas()
+        dataset = Dataset.from_pandas(pd_data)
+    else:
+        dataset = Dataset.from_parquet(args.dataset_parquet_path)
+
+    #---slice the data and dispatch to each dp worker
     if args.dp_size == 1:
-        run_dp_worker(args, dp_rank=0, dp_size=1)
+        run_dp_worker(args, dp_rank=0, dp_size=1, dataset=dataset)
     else:
         procs = []
         console.print(f"🔄 Starting {dp_per_node} worker(s) on node {args.node_rank}/{args.node_size-1}")
         for local_rank in range(dp_per_node):
             global_rank = args.node_rank * dp_per_node + local_rank
-            p = Process(target=run_dp_worker, args=(args, global_rank, args.dp_size))
+
+            # ── DP split
+            if args.dp_size > 1:
+                total = len(dataset)
+                per_rank = total // args.dp_size
+                start = global_rank * per_rank
+                end = start + per_rank if global_rank != args.dp_size - 1 else total
+                console.print("start:", start)
+                console.print("end:",end)
+                dp_dataset = dataset.select(range(start, end))
+                console.print(
+                    f"🔢 DP rank [highlight]{global_rank}[/highlight] "
+                    f"processing [highlight]{len(dp_dataset)}[/highlight] / {total}"
+                )
+            else:
+                console.print(f"📊 Dataset loaded with [highlight]{len(dataset)}[/highlight] samples")
+
+            p = Process(target=run_dp_worker, args=(args, global_rank, args.dp_size, dp_dataset))
             p.start()
             procs.append(p)
 
