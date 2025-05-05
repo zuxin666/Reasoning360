@@ -11,8 +11,9 @@ import numpy as np
 from .utils import _ERROR_MSG_PREFIX
 
 _MAX_CHAR_DISPLAY = 2048
-# CODER1_EXEC = os.environ.get("CODER1_EXEC", "firejail")
-CODER1_EXEC = os.environ.get("CODER1_EXEC", "bwrap")
+
+# CODER1_EXEC = os.environ.get("CODER1_EXEC", "bwrap")
+CODER1_EXEC = os.environ.get("CODER1_EXEC", "unsafe_local")
 
 if CODER1_EXEC == "docker":
     from .docker_exec import code_exec_docker
