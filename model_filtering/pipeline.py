@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
-
+import traceback
 # Local imports
 from model_filtering.utils import console, json_default, custom_collate_fn
 
@@ -30,7 +30,6 @@ class DifficultyFilterPipeline:
 
         self.start_time = time.time()
         self.gen_times = []
-        
         self.args.skip_percentage = getattr(self.args, 'skip_percentage', 0.0)
 
     @staticmethod
@@ -71,9 +70,6 @@ class DifficultyFilterPipeline:
     def prepare_dataset(self):
         console.print(f"📂 Loading dataset from [highlight]{self.args.dataset_parquet_path}[/highlight]...")
         console.print(f"🐞 [DEBUG] Dataset loaded with [highlight]{len(self.dataset)}[/highlight] samples")
-
-        assert self.dataset is None
-
 
         # TODO: replace None values with empty strings in dataset columns and nested dictionaries
         # TODO: Below sometimes causes stucks in the process
@@ -156,7 +152,6 @@ class DifficultyFilterPipeline:
                         for k in batch_dict["extra_info"]}
             extra_info["too_long"] = (token_len > MAX_LEN)
             extra_info["token_length"] = token_len
-
             try:
                 # collect model outputs
                 full_responses = [r.text for r in outputs[i].outputs]
@@ -322,6 +317,7 @@ class DifficultyFilterPipeline:
     # ------------- main loop ------------------------------------------------ #
     def run_inference(self):
         self.initialize_components()
+        self.prepare_dataset()
 
         dataloader = DataLoader(
             self.dataset,
