@@ -29,7 +29,6 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
     if answer_str is not None:
         answer = math.remove_boxed(answer_str)
         answer = drop_latex_text(answer)
-        print(f"[DEBUG] answer: {answer}")
     else:
         answer = solution_str
 

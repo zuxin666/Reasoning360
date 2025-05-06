@@ -67,9 +67,9 @@ def compute_score(solution_str, ground_truth, method='strict', format_score=0., 
     """
     answer = extract_solution(solution_str=solution_str, method=method)
     if answer is None:
-        return 0
+        return {'score': 0, 'acc': 0}
     else:
         if answer == ground_truth:
-            return score
+            return {'score': score, 'acc': score}
         else:
-            return format_score
+            return {'score': format_score, 'acc': format_score}

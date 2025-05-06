@@ -22,7 +22,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         
         if reward_metric == "prime_math":
             from . import prime_math
-            res = prime_math.compute_score(solution_str, ground_truth)[0]
+            res = prime_math.compute_score(solution_str, ground_truth)
 
         elif reward_metric == "math_llm_judge":
             from . import math_llm_judge
@@ -69,11 +69,8 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
 
     if isinstance(res, dict):
-        print(f"[DEBUG] res is a dict, from data source: {data_source}")
         return res
     elif isinstance(res, (int, float, bool)):
-        print(f"[DEBUG] res is a int, float, or bool, from data source: {data_source}")
         return float(res)
     else:
-        print(f"[DEBUG] res is a list, from data source: {data_source}")
         return float(res[0])

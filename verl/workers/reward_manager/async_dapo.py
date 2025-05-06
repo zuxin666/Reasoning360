@@ -202,16 +202,19 @@ class AsyncDAPORewardManager:
             zip(results, data_sources, response_strs, ground_truths, valid_response_lengths)
         ):
             score = 0.0
-            if result is not None:
+            if result is None:
+                result = {"score": 0.0, "acc": 0.0}
+            else:
                 result = result[0]  # Unwrap from asyncio.gather
-                if isinstance(result, dict):
-                    score = result["score"]
-                    # Store the information including original reward
-                    for key, value in result.items():
-                        # print(f"[DEBUG] in reward_extra_info, key: {key}, value: {value}")
-                        reward_extra_info[key].append(value)
-                else:
-                    score = result
+                if not isinstance(result, dict):
+                    # Hack to avoid some rewards don't return a dict
+                    result = {"score": result, "acc": result}
+            
+            score = result["score"]
+            # Store the information including original reward
+            for key, value in result.items():
+                # print(f"[DEBUG] in reward_extra_info, key: {key}, value: {value}")
+                reward_extra_info[key].append(value)
 
             reward = score
 
