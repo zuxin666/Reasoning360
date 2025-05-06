@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """
-Reward-only pass for batched inference
-"""
-#!/usr/bin/env python3
-"""
-Reward-only pass for batched inference
+Reward-only pass for batched inference with preserved response ordering
 """
 
 # Standard library imports
@@ -17,7 +13,7 @@ import time
 from datetime import datetime, timedelta
 from multiprocessing import cpu_count
 from multiprocessing.pool import Pool
-from typing import Optional
+from typing import Optional, Dict, List, Tuple, Any, Union
 
 # Third party imports
 from tqdm import tqdm
@@ -54,10 +50,10 @@ def compute_single_reward(arg_tuple):
     """
     Compute reward for one (response, ground-truth) pair.
 
-    * arg_tuple = (gid, response, data_source, ground_truth, extra_info)
-    * Returns (gid, detailed_dict)
+    * arg_tuple = (gid, response, data_source, ground_truth, extra_info, resp_idx)
+    * Returns (gid, detailed_dict, resp_idx)
     """
-    gid, response, data_source, ground_truth, extra_info = arg_tuple
+    gid, response, data_source, ground_truth, extra_info, resp_idx = arg_tuple
 
     if _TASK_TIMEOUT is not None:
         signal.signal(signal.SIGALRM, _timeout_handler)
@@ -77,12 +73,12 @@ def compute_single_reward(arg_tuple):
             detailed = {"score": float(result)}
             score = float(result)
         detailed["score"] = score
-        return gid, detailed
+        return gid, detailed, resp_idx
 
     except TimeoutError:
-        return gid, {"score": 0.0, "error": f"task_timeout>{_TASK_TIMEOUT}s"}
+        return gid, {"score": 0.0, "error": f"task_timeout>{_TASK_TIMEOUT}s"}, resp_idx
     except Exception as e:
-        return gid, {"score": 0.0, "error": str(e)}
+        return gid, {"score": 0.0, "error": str(e)}, resp_idx
     finally:
         if _TASK_TIMEOUT is not None:
             signal.alarm(0)
@@ -112,15 +108,22 @@ def score_rank_dir(rank_dir: str, args, reward_pool: Optional[Pool]):
         tasks, lookup, gid = [], {}, 0
         batch_name = os.path.basename(batch_file)
 
+        # Track the number of responses per sample to pre-allocate results arrays
+        response_counts = {}
+
         for s_idx, sample in batch.items():
             if not args.recalculate_rewards and sample.get("scores"):
                 rank_results[f"{batch_name}_{s_idx}"] = sample
                 continue
 
-            for raw_resp in sample["responses"]:
+            # Store the count of responses for this sample
+            response_counts[s_idx] = len(sample["responses"])
+
+            for resp_idx, raw_resp in enumerate(sample["responses"]):
                 stripped = raw_resp.split("</think>", 1)[1] if "</think>" in raw_resp else raw_resp
-                tasks.append((gid, stripped, sample["source"], sample["ground_truth"], sample["extra_info"]))
-                lookup[gid] = s_idx
+                # Include the resp_idx in the task tuple
+                tasks.append((gid, stripped, sample["source"], sample["ground_truth"], sample["extra_info"], resp_idx))
+                lookup[gid] = s_idx  # Maps back to sample index
                 gid += 1
 
         total_responses += len(tasks)
@@ -141,17 +144,34 @@ def score_rank_dir(rank_dir: str, args, reward_pool: Optional[Pool]):
                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}',
             )
 
-            detailed_by_sample = {}
-            for gidx, detailed in results_iter:
+            # Initialize results containers with the right size for each sample
+            detailed_by_sample: Dict[str, List[Optional[Dict]]] = {
+                s_idx: [None] * count for s_idx, count in response_counts.items()
+            }
+            
+            # Process results as they come in, maintaining order
+            for gidx, detailed, resp_idx in results_iter:
                 s_idx = lookup[gidx]
-                detailed_by_sample.setdefault(s_idx, []).append(detailed)
+                # Place the result at the correct position based on resp_idx
+                detailed_by_sample[s_idx][resp_idx] = detailed
                 inner_pbar.update(1)
+            
             inner_pbar.close()
 
             for s_idx, sample in batch.items():
                 if s_idx not in detailed_by_sample:
                     continue
+                
                 detailed_list = detailed_by_sample[s_idx]
+                
+                # Verify all positions were filled
+                if None in detailed_list:
+                    missing_indices = [i for i, d in enumerate(detailed_list) if d is None]
+                    console.print(f"⚠️ Missing results for sample {s_idx} at positions {missing_indices}")
+                    # Fill any missing results with error placeholders
+                    for idx in missing_indices:
+                        detailed_list[idx] = {"score": 0.0, "error": "result_missing"}
+                
                 scores = [d["score"] for d in detailed_list]
                 pass_cnt = sum(s >= args.correct_reward_threshold for s in scores)
                 sample.update(
@@ -199,7 +219,7 @@ def score_rank_dir(rank_dir: str, args, reward_pool: Optional[Pool]):
 # Main                                                                        #
 # --------------------------------------------------------------------------- #
 def main():
-    parser = argparse.ArgumentParser(description="Reward-only pass (efficient, balanced)")
+    parser = argparse.ArgumentParser(description="Reward-only pass (efficient, balanced) with preserved ordering")
     parser.add_argument("--model_path", type=str, required=True)
     parser.add_argument("--dataset_parquet_path", type=str, required=True,
                         help="Only used to locate the dataset-named output directory")
@@ -228,7 +248,7 @@ def main():
         1 if args.reward_workers <= 1 else min(args.reward_workers, max(1, avail - reserved))
     )
 
-    console.rule("[bold]Difficulty Filter — Reward pass", style="cyan")
+    console.rule("[bold]Difficulty Filter — Ordered Reward pass", style="cyan")
     console.print(f"⏰  Start : {datetime.now():%Y-%m-%d %H:%M:%S}")
     console.print(f"🖥️  CPUs  : available={avail}, using={workers}")
     console.print(f"⏱️  Hard per-response timeout : {args.task_timeout}s")

@@ -42,7 +42,41 @@ def json_default(obj):
     raise TypeError(f"{type(obj).__name__} is not JSON serialisable")
 
 # --------------------------------------------------------------------------- #
-# Data loading and reading                                                    #
+# Preserves dictionary and list formats without converting to tensors         #
+# --------------------------------------------------------------------------- #
+def custom_collate_fn(batch):
+    """
+    Custom collate function that preserves dictionary and list formats without converting to tensors
+    """
+    elem = batch[0]
+    if isinstance(elem, dict):
+        # For dictionaries, process each key separately
+        result = {}
+        for key in elem:
+            values = [d[key] for d in batch]
+            # Recursively process values for each key
+            result[key] = custom_collate_fn(values)
+        return result
+    elif isinstance(elem, list):
+        # For lists, return original list directly
+        return batch
+    elif isinstance(elem, tuple):
+        # For tuples, process each element separately
+        transposed = zip(*batch)
+        result = []
+        for samples in transposed:
+            result.append(custom_collate_fn(samples))
+        return tuple(result)
+    else:
+        # For other types, use default collate
+        try:
+            return default_collate(batch)
+        except:
+            # If default collate fails, return original data
+            return batch
+
+# --------------------------------------------------------------------------- #
+# Data loading, concatenation, and analysis                                   #
 # --------------------------------------------------------------------------- #
 def read_json(file_path: str) -> Dict:
     """Read a single JSON file."""
@@ -103,9 +137,15 @@ def extract_idx_to_passrate(output_dir: str, dataset_name: str, model_name: str)
             
         # Extract idx to pass_rate mapping
         for key, value in data["results"].items():
-            if "extra_info" in value and "index" in value["extra_info"]:
-                idx = value["extra_info"]["index"]
-                
+            idx = None
+            # Try different variations of index field names
+            if "extra_info" in value:
+                for index_field in ["index", "idx", "id"]:
+                    if index_field in value["extra_info"]:
+                        idx = value["extra_info"][index_field]
+                        break
+            
+            if idx is not None:
                 # Check for duplicate idx
                 if idx in seen_idx_set:
                     raise ValueError(f"Duplicate idx '{idx}' found in dataset {dataset_name}, model {model_name}")
@@ -114,7 +154,7 @@ def extract_idx_to_passrate(output_dir: str, dataset_name: str, model_name: str)
                 pass_rate = value["pass_rate"]
                 idx_to_pass_rate[idx] = pass_rate
             else:
-                console.print(f"[warning]Missing idx in extra_info for sample {key} in {final_results_path}[/warning]")
+                console.print(f"[warning]Missing index in extra_info for sample {key} in {final_results_path}[/warning]")
     
     return idx_to_pass_rate
 
@@ -404,7 +444,6 @@ def main():
                 console.print(f"[success]Saved combined mapping for {args.model} with {len(combined_mapping)} samples to {combined_path}[/success]")
             except Exception as e:
                 console.print(f"[error]Failed to save combined mapping: {e}[/error]")
-        
         # Always analyze the mapping (whether single dataset or combined)
         dataset_label = args.datasets[0] if len(args.datasets) == 1 else f"{len(args.datasets)} combined datasets"
         console.print(f"\n[bold]Analyzing {dataset_label} for {args.model}[/bold]")
