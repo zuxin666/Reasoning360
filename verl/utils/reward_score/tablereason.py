@@ -1,5 +1,6 @@
 from verl.utils.reward_score.prime_math.grader import math_equal
 from verl.utils.reward_score import math
+import re
 
 
 def _check_single_answer(answer: str, ground_truth: str) -> bool:
@@ -12,8 +13,11 @@ def _check_single_answer(answer: str, ground_truth: str) -> bool:
         return math.is_equiv(answer, ground_truth)
 
 def drop_latex_text(answer: str) -> str:
-    # remove \\text from \\text{a few times in the past 12 months} 
-    pass
+    # Remove \\text{} from "20 \\text{to} 39". There could be multiple \\text{} in the answer.
+    # Replace \text{something} with something
+    answer = re.sub(r'\\\\text\{([^}]*)\}', r'\1', answer)
+    answer = re.sub(r'\\\\', r'', answer)
+    return answer
     
 
 def compute_score(model_output: str, ground_truth: str) -> bool:
@@ -25,6 +29,7 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
     if answer_str is not None:
         answer = math.remove_boxed(answer_str)
         answer = drop_latex_text(answer)
+        print(f"[DEBUG] answer: {answer}")
     else:
         answer = solution_str
 
