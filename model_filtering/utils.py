@@ -42,7 +42,41 @@ def json_default(obj):
     raise TypeError(f"{type(obj).__name__} is not JSON serialisable")
 
 # --------------------------------------------------------------------------- #
-# Data loading and reading                                                    #
+# Preserves dictionary and list formats without converting to tensors         #
+# --------------------------------------------------------------------------- #
+def custom_collate_fn(batch):
+    """
+    Custom collate function that preserves dictionary and list formats without converting to tensors
+    """
+    elem = batch[0]
+    if isinstance(elem, dict):
+        # For dictionaries, process each key separately
+        result = {}
+        for key in elem:
+            values = [d[key] for d in batch]
+            # Recursively process values for each key
+            result[key] = custom_collate_fn(values)
+        return result
+    elif isinstance(elem, list):
+        # For lists, return original list directly
+        return batch
+    elif isinstance(elem, tuple):
+        # For tuples, process each element separately
+        transposed = zip(*batch)
+        result = []
+        for samples in transposed:
+            result.append(custom_collate_fn(samples))
+        return tuple(result)
+    else:
+        # For other types, use default collate
+        try:
+            return default_collate(batch)
+        except:
+            # If default collate fails, return original data
+            return batch
+
+# --------------------------------------------------------------------------- #
+# Data loading, concatenation, and analysis                                   #
 # --------------------------------------------------------------------------- #
 def read_json(file_path: str) -> Dict:
     """Read a single JSON file."""
