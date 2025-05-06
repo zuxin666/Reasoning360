@@ -12,13 +12,21 @@ A pipeline for difficulty filtering using reward functions, supporting data-para
 
 ### Stage 1: Inference
 
+> [!IMPORTANT]  
+> To run the model, you have to install verl and upgrade vllm to 0.8.5, please first follow the instructions in the main README.md, and then run the following command:
+
+```bash
+pip uninstall vllm
+pip install vllm==0.8.5
+```
+
 #### Qwen2.5-7B-Instruct (~0.09s per data point on leetcode2k)
 ```bash
 python model_filtering/run_inference.py \
   --model_path "Qwen/Qwen2.5-7B-Instruct" \
   --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" \
   --output_dir "./diff_filter_output" \
-  --max_prompt_length 2048 \
+  --max_prompt_length 4096 \
   --truncation "left" \
   --dp_size 8 \
   --tp_size 1 \
@@ -33,21 +41,12 @@ python model_filtering/run_inference.py \
 
 #### Qwen3-30B-A3B (~12s per data point on leetcode2k)
 
-> [!IMPORTANT]  
-> To run this model, you have to upgrade vllm to 0.8.5, please run the following command:
-
-```bash
-pip install --upgrade vllm==0.8.5
-```
-
-Then run the following command:
-
 ```bash
 python model_filtering/run_inference.py \
   --model_path "Qwen/Qwen3-30B-A3B" \
   --dataset_parquet_path "data/train/codegen__leetcode2k_2.4k.parquet" \
   --output_dir "./diff_filter_output" \
-  --max_prompt_length 2048 \
+  --max_prompt_length 4096 \
   --truncation "left" \
   --dp_size 4 \
   --tp_size 2 \
@@ -94,28 +93,42 @@ The pipeline provides flags to control checkpoint behavior:
 
 After running models with data-parallel processing, you can use the utility functions to concatenate and analyze results.
 
-### Analyzing Results
+### Generating Pass Rate Mappings
 
-Analyze difficulty distributions of one or more models:
-
-```bash
-python -m model_filtering.utils analyze \
-  --output_dir "./diff_filter_output" \
-  --dataset "codegen__leetcode2k_2.4k"
-```
-
-Analyze specific models:
+Generate idx to pass_rate mapping for a specific model and dataset:
 
 ```bash
-python -m model_filtering.utils analyze \
+python -m model_filtering.utils map \
   --output_dir "./diff_filter_output" \
   --dataset "codegen__leetcode2k_2.4k" \
-  --models "Qwen2.5-7B-Instruct"
+  --model "Qwen2.5-7B-Instruct"
+```
+
+This command will create an `idx_to_passrate.json` file in the model's directory that can be used for analysis.
+
+### Analyzing Results
+
+Analyze difficulty distributions of one or more datasets using a specific model:
+
+```bash
+python -m model_filtering.utils analyze \
+  --output_dir "./diff_filter_output" \
+  --datasets "codegen__leetcode2k_2.4k" \
+  --model "Qwen2.5-7B-Instruct"
+```
+
+Analyze multiple dataset chunks with the same model:
+
+```bash
+python -m model_filtering.utils analyze \
+  --output_dir "./diff_filter_output" \
+  --datasets barc_1.1k_chunk_00 barc_1.1k_chunk_01 barc_1.1k_chunk_02 \
+  --model "Qwen3-30B-A3B"
 ```
 
 Some advanced options:
-- `--force_reconcat`: Force regeneration of concatenated files even if they already exist
-- `--save_concat`: Don't save concatenated results after analysis
+- `--regenerate`: Force regeneration of idx_to_passrate mapping
+- `--save_combined`: Save the combined mapping when analyzing multiple datasets
 
 The analysis output categorizes problems into seven difficulty levels:
 - Impossible (pass rate exactly 0.0)
@@ -125,17 +138,3 @@ The analysis output categorizes problems into seven difficulty levels:
 - Easy (pass rate 0.6-0.8)
 - Very Easy (pass rate 0.8-1.0, exclusive)
 - Perfect (pass rate exactly 1.0)
-
-### Concatenating Results
-
-For multi-DP runs, results are distributed across multiple directories. The `concat` command gathers all results into a single file:
-
-```bash
-python -m model_filtering.utils concat \
-  --output_dir "./diff_filter_output" \
-  --dataset "codegen__leetcode2k_2.4k" \
-  --model "Qwen2.5-7B-Instruct"
-```
-
-Some advanced options:
-- `--force`: Force regeneration of concatenated files even if they already exist
