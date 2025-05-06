@@ -17,7 +17,9 @@ test_files="['data/test/math__math_500.parquet']"
 # huggingface-cli download Qwen/Qwen2.5-3B --local-dir ~/hf_models/Qwen2.5-3B
 
 # serve vllm and update the ip address
-# vllm serve Qwen/Qwen2.5-32B --host 0.0.0.0 -tp 8 --port 8000
+# vllm serve Qwen/Qwen2.5-32B-Instruct --host 0.0.0.0 -tp 8 --port 8000
+
+# change the ip below to the node of LLM judge
 export MATH_LLM_JUDGE_URL=http://176.56.200.81:8000/v1/chat/completions
 
 BASE_MODEL=${HOME}/hf_models/Qwen2.5-3B
