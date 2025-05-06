@@ -162,6 +162,12 @@ def score_rank_dir(rank_dir: str, args, reward_pool: Optional[Pool]):
                     }
                 )
                 rank_results[f"{batch_name}_{s_idx}"] = sample
+            
+            # Calculate and print overall pass rate for this batch
+            batch_pass_rates = [sample["pass_rate"] for sample in batch.values() if "pass_rate" in sample]
+            if batch_pass_rates:
+                avg_batch_pass_rate = sum(batch_pass_rates) / len(batch_pass_rates)
+                console.print(f"📊 {batch_name} pass rate: {avg_batch_pass_rate:.2%}")
         else:
             console.print(f"ℹ️  All samples in {batch_name} already scored; skipping computation")
 
