@@ -103,9 +103,15 @@ def extract_idx_to_passrate(output_dir: str, dataset_name: str, model_name: str)
             
         # Extract idx to pass_rate mapping
         for key, value in data["results"].items():
-            if "extra_info" in value and "index" in value["extra_info"]:
-                idx = value["extra_info"]["index"]
-                
+            idx = None
+            # Try different variations of index field names
+            if "extra_info" in value:
+                for index_field in ["index", "idx", "id"]:
+                    if index_field in value["extra_info"]:
+                        idx = value["extra_info"][index_field]
+                        break
+            
+            if idx is not None:
                 # Check for duplicate idx
                 if idx in seen_idx_set:
                     raise ValueError(f"Duplicate idx '{idx}' found in dataset {dataset_name}, model {model_name}")
@@ -114,7 +120,7 @@ def extract_idx_to_passrate(output_dir: str, dataset_name: str, model_name: str)
                 pass_rate = value["pass_rate"]
                 idx_to_pass_rate[idx] = pass_rate
             else:
-                console.print(f"[warning]Missing idx in extra_info for sample {key} in {final_results_path}[/warning]")
+                console.print(f"[warning]Missing index in extra_info for sample {key} in {final_results_path}[/warning]")
     
     return idx_to_pass_rate
 
@@ -404,7 +410,6 @@ def main():
                 console.print(f"[success]Saved combined mapping for {args.model} with {len(combined_mapping)} samples to {combined_path}[/success]")
             except Exception as e:
                 console.print(f"[error]Failed to save combined mapping: {e}[/error]")
-        
         # Always analyze the mapping (whether single dataset or combined)
         dataset_label = args.datasets[0] if len(args.datasets) == 1 else f"{len(args.datasets)} combined datasets"
         console.print(f"\n[bold]Analyzing {dataset_label} for {args.model}[/bold]")
