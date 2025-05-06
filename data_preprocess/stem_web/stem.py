@@ -33,7 +33,7 @@ def keep_example(example, max_answer_len):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--json_out",    default="samples_le30.json")
-    p.add_argument("--parquet_out", default="webinstruct_le30.parquet")
+    p.add_argument("--parquet_out", default="stem_web.parquet")
     p.add_argument("--dataset",     default="TIGER-Lab/WebInstruct-verified")
     p.add_argument("--split",       default="train")
     p.add_argument("--tokenizer",   default="Qwen/Qwen3-8B")
