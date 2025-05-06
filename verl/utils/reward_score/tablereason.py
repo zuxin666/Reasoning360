@@ -12,9 +12,13 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
     else:
         answer = solution_str
         
+    print(f"answer: {answer}")
+    print(f"ground_truth: {ground_truth}")
+        
     if "|" not in ground_truth:
         # Single answer
         score = math.is_equiv(answer, ground_truth)
+        print(f"score: {score}")
     else:
         # Multiple answers, in format "ans1|ans2|ans3"
         try:
@@ -30,8 +34,6 @@ def compute_score(model_output: str, ground_truth: str) -> bool:
                         break
         except Exception as e:
             print(f"Error postprocessing ground truth or response in tablereason.py: {e}")
-            print(ground_truth)
-            print(answer)
-            score = 0
+            return {"score": 0, "acc": 0}
 
     return {"score": score, "acc": score}
