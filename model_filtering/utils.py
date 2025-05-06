@@ -2,7 +2,7 @@
 import os
 import json
 import glob
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
 from collections import defaultdict
 import torch
@@ -42,41 +42,7 @@ def json_default(obj):
     raise TypeError(f"{type(obj).__name__} is not JSON serialisable")
 
 # --------------------------------------------------------------------------- #
-# Preserves dictionary and list formats without converting to tensors         #
-# --------------------------------------------------------------------------- #
-def custom_collate_fn(batch):
-    """
-    Custom collate function that preserves dictionary and list formats without converting to tensors
-    """
-    elem = batch[0]
-    if isinstance(elem, dict):
-        # For dictionaries, process each key separately
-        result = {}
-        for key in elem:
-            values = [d[key] for d in batch]
-            # Recursively process values for each key
-            result[key] = custom_collate_fn(values)
-        return result
-    elif isinstance(elem, list):
-        # For lists, return original list directly
-        return batch
-    elif isinstance(elem, tuple):
-        # For tuples, process each element separately
-        transposed = zip(*batch)
-        result = []
-        for samples in transposed:
-            result.append(custom_collate_fn(samples))
-        return tuple(result)
-    else:
-        # For other types, use default collate
-        try:
-            return default_collate(batch)
-        except:
-            # If default collate fails, return original data
-            return batch
-
-# --------------------------------------------------------------------------- #
-# Data loading, concatenation, and analysis                                   #
+# Data loading and reading                                                    #
 # --------------------------------------------------------------------------- #
 def read_json(file_path: str) -> Dict:
     """Read a single JSON file."""
@@ -87,101 +53,35 @@ def read_json(file_path: str) -> Dict:
         console.print(f"[error]Error reading {file_path}: {e}[/error]")
         return {}
 
-def load_concatenated_results(
-    path: Optional[str] = None,
-    base_dir: Optional[str] = None,
-    dataset_name: Optional[str] = None,
-    model_name: Optional[str] = None,
-    force_reconcat: bool = False
-) -> Dict:
+# --------------------------------------------------------------------------- #
+# Extract idx to pass_rate mapping                                            #
+# --------------------------------------------------------------------------- #
+def extract_idx_to_passrate(output_dir: str, dataset_name: str, model_name: str) -> Dict[str, float]:
     """
-    Load concatenated results either from a specific path or by constructing the path.
-    
-    Args:
-        path: Full path to the model directory (e.g., "diff_filter_output/codegen__leetcode2k_2.4k/DeepSeek-R1-Distill-Qwen-32B")
-        base_dir: Base output directory (used with dataset_name and model_name)
-        dataset_name: Name of the dataset (used with base_dir and model_name)
-        model_name: Name of the model (used with base_dir and dataset_name)
-        force_reconcat: Whether to force re-concatenation if concatenated results already exist
-        
-    Returns:
-        Dictionary containing the concatenated results
-    """
-    # Determine the model directory path
-    if path is not None:
-        model_dir = path
-    elif all([base_dir, dataset_name, model_name]):
-        model_dir = os.path.join(base_dir, dataset_name, model_name.split("/")[0])
-    else:
-        console.print("[error]Either path or all of base_dir, dataset_name, and model_name must be provided[/error]")
-        return {}
-    
-    # Check if model directory exists
-    if not os.path.exists(model_dir):
-        console.print(f"[error]Directory not found: {model_dir}[/error]")
-        return {}
-    
-    # Path to concatenated results
-    concat_results_path = os.path.join(model_dir, "concatenated_results.json")
-    
-    # Check if concatenated results already exist and can be loaded
-    if os.path.exists(concat_results_path) and not force_reconcat:
-        console.print(f"[info]Loading existing concatenated results from {concat_results_path}[/info]")
-        return read_json(concat_results_path)
-    
-    # Concatenate results without saving
-    if path is not None:
-        # Extract dataset_name and model_name from specific_path
-        parts = path.split(os.path.sep)
-        if len(parts) >= 2:
-            extracted_dataset = parts[-2]
-            extracted_model = parts[-1]
-            return concat_model_results(os.path.dirname(os.path.dirname(path)), 
-                                      extracted_dataset, extracted_model, 
-                                      force_reconcat=True, save_to_file=False)
-        else:
-            console.print(f"[error]Could not extract dataset and model from path: {path}[/error]")
-            return {}
-    else:
-        return concat_model_results(base_dir, dataset_name, model_name, 
-                                  force_reconcat=True, save_to_file=False)
-
-def concat_model_results(output_dir: str, dataset_name: str, model_name: str, force_reconcat: bool = False, save_to_file: bool = True) -> Dict:
-    """Concatenate final_results.json from all dp* directories for a model.
+    Extract mapping from idx to pass_rate for a specific model and dataset.
     
     Args:
         output_dir: Base output directory
         dataset_name: Name of the dataset
         model_name: Name of the model
-        force_reconcat: Whether to force re-concatenation if concatenated results already exist
-        save_to_file: Whether to save the concatenated results to a file
         
     Returns:
-        Dictionary containing the concatenated results
+        Dictionary mapping unique idx to pass_rate
     """
     model_dir = os.path.join(output_dir, dataset_name, model_name)
     if not os.path.exists(model_dir):
         console.print(f"[error]Directory not found: {model_dir}[/error]")
         return {}
 
-    save_path = os.path.join(model_dir, "concatenated_results.json")
-    if os.path.exists(save_path) and not force_reconcat:
-        console.print(f"[info]Concatenated results already exist at {save_path}. Use force_reconcat=True to regenerate.[/info]")
-        if save_to_file:
-            return read_json(save_path)
-        else:
-            return read_json(save_path)
-
-    all_results = {}
+    idx_to_pass_rate = {}
+    seen_idx_set = set()
     dp_dirs = glob.glob(os.path.join(model_dir, "dp*"))
     
     if not dp_dirs:
         console.print(f"[warning]No DP directories found in {model_dir}[/warning]")
         return {}
         
-    console.print(f"Found {len(dp_dirs)} DP directories")
-    
-    batch_performance = []
+    console.print(f"Found {len(dp_dirs)} DP directories in {model_dir}")
     
     for dp_dir in dp_dirs:
         # Extract dp_rank from directory name
@@ -201,245 +101,314 @@ def concat_model_results(output_dir: str, dataset_name: str, model_name: str, fo
             console.print(f"[warning]Invalid results format in {final_results_path}[/warning]")
             continue
             
-        # Add dp_rank to keys to avoid conflicts
-        dp_results = {
-            f"dp{dp_rank}_{key}": value 
-            for key, value in data["results"].items()
-        }
-        
-        # Track batch performance
-        batch_size = len(dp_results)
-        batch_avg_pass = 0.0
-        if batch_size > 0:
-            batch_avg_pass = sum(item["pass_rate"] for item in dp_results.values()) / batch_size
-        batch_performance.append({"dp": dp_rank, "samples": batch_size, "avg_pass_rate": batch_avg_pass})
-        console.print(f"[info]Batch dp{dp_rank}: {batch_size} samples, avg pass: {batch_avg_pass:.3f}[/info]")
-        
-        all_results.update(dp_results)
-
-    if not all_results:
-        console.print("[error]No valid results found to concatenate[/error]")
-        return {}
-
-    result_data = {
-        "results": all_results,
-        "total_samples": len(all_results),
-        "dp_count": len(dp_dirs),
-        "batch_performance": batch_performance
-    }
+        # Extract idx to pass_rate mapping
+        for key, value in data["results"].items():
+            if "extra_info" in value and "index" in value["extra_info"]:
+                idx = value["extra_info"]["index"]
+                
+                # Check for duplicate idx
+                if idx in seen_idx_set:
+                    raise ValueError(f"Duplicate idx '{idx}' found in dataset {dataset_name}, model {model_name}")
+                
+                seen_idx_set.add(idx)
+                pass_rate = value["pass_rate"]
+                idx_to_pass_rate[idx] = pass_rate
+            else:
+                console.print(f"[warning]Missing idx in extra_info for sample {key} in {final_results_path}[/warning]")
     
-    if save_to_file:
-        with open(save_path, 'w') as f:
-            json.dump(result_data, f, indent=2, default=json_default)
-        console.print(f"[success]Concatenated {len(all_results)} samples from {len(dp_dirs)} DPs to {save_path}[/success]")
-    else:
-        console.print(f"[success]Concatenated {len(all_results)} samples from {len(dp_dirs)} DPs (not saved to file)[/success]")
-    
-    return result_data
+    return idx_to_pass_rate
 
-def analyze_dataset_difficulty(output_dir: str, dataset_name: str, model_names: Optional[List[str]] = None, 
-                             force_reconcat: bool = False, save_concat: bool = False) -> None:
-    """Analyze difficulty distribution for each model separately."""
+# --------------------------------------------------------------------------- #
+# Generate idx to pass_rate mapping for a dataset                             #
+# --------------------------------------------------------------------------- #
+def generate_idx_mapping(output_dir: str, dataset_name: str, model_name: str) -> Dict[str, float]:
+    """
+    Generate idx to pass_rate mapping for a single model in a dataset.
+    
+    Args:
+        output_dir: Base output directory
+        dataset_name: Name of the dataset
+        model_name: Name of the model to process
+        
+    Returns:
+        Dictionary mapping unique idx to pass_rate
+    """
     dataset_dir = os.path.join(output_dir, dataset_name)
     if not os.path.exists(dataset_dir):
         console.print(f"[error]Dataset directory not found: {dataset_dir}[/error]")
+        return {}
+
+    console.print(f"[bold]Processing Model: {model_name}[/bold]")
+    
+    # Extract idx to pass_rate mapping for this model
+    idx_to_pass_rate = extract_idx_to_passrate(output_dir, dataset_name, model_name)
+    
+    if not idx_to_pass_rate:
+        console.print(f"[warning]No valid idx to pass_rate mapping found for {model_name}[/warning]")
+        return {}
+    
+    # Save individual model mapping
+    model_dir = os.path.join(dataset_dir, model_name)
+    model_mapping_path = os.path.join(model_dir, "idx_to_passrate.json")
+    try:
+        with open(model_mapping_path, 'w') as f:
+            json.dump(idx_to_pass_rate, f, indent=2, default=json_default)
+        console.print(f"[success]Saved idx to pass_rate mapping for {model_name} ({len(idx_to_pass_rate)} samples)[/success]")
+    except Exception as e:
+        console.print(f"[error]Failed to save idx to pass_rate mapping for {model_name}: {e}[/error]")
+    
+    return idx_to_pass_rate
+
+# --------------------------------------------------------------------------- #
+# Combine mappings from multiple datasets                                     #
+# --------------------------------------------------------------------------- #
+def combine_mappings(output_dir: str, dataset_names: List[str], model_name: str, regenerate: bool = False) -> Dict[str, float]:
+    """
+    Combine idx to pass_rate mappings from multiple datasets for a single model.
+    
+    Args:
+        output_dir: Base output directory
+        dataset_names: List of dataset names to combine
+        model_name: Model name to use for all datasets
+        regenerate: Whether to regenerate mappings
+        
+    Returns:
+        Combined mapping of unique idx to pass_rate
+    """
+    combined_mapping = {}
+    all_seen_idx = set()
+    
+    for dataset_name in dataset_names:
+        console.print(f"\n[bold]Processing dataset: {dataset_name}[/bold]")
+        model_dir = os.path.join(output_dir, dataset_name, model_name)
+        
+        if not os.path.exists(model_dir):
+            console.print(f"[warning]Directory {model_dir} does not exist, skipping[/warning]")
+            continue
+        
+        mapping_path = os.path.join(model_dir, "idx_to_passrate.json")
+        idx_to_pass_rate = {}
+        
+        # Generate or load mapping
+        if regenerate:
+            console.print(f"[bold]Regenerating mapping for {dataset_name} with {model_name}[/bold]")
+            idx_to_pass_rate = generate_idx_mapping(output_dir, dataset_name, model_name)
+        elif not os.path.exists(mapping_path):
+            console.print(f"[error]Mapping file not found: {mapping_path}[/error]")
+            console.print(f"[info]Please run the 'map' command first[/info]")
+            return
+        else:
+            idx_to_pass_rate = read_json(mapping_path)
+            console.print(f"[info]Loaded existing mapping for {dataset_name} with {len(idx_to_pass_rate)} samples[/info]")
+        
+        # Check for duplicate idx across datasets
+        for idx in idx_to_pass_rate:
+            if idx in all_seen_idx:
+                raise ValueError(f"Duplicate idx '{idx}' found across multiple datasets")
+            all_seen_idx.add(idx)
+        
+        # Add to combined mapping
+        combined_mapping.update(idx_to_pass_rate)
+    
+    # Save combined mapping
+    combined_dir = os.path.join(output_dir, "combined")
+    os.makedirs(combined_dir, exist_ok=True)
+    
+    combined_path = os.path.join(combined_dir, f"{model_name}_combined.json")
+    try:
+        with open(combined_path, 'w') as f:
+            json.dump(combined_mapping, f, indent=2, default=json_default)
+        console.print(f"[success]Saved combined mapping for {model_name} with {len(combined_mapping)} samples from {len(dataset_names)} datasets[/success]")
+    except Exception as e:
+        console.print(f"[error]Failed to save combined mapping: {e}[/error]")
+    
+    return combined_mapping
+
+# --------------------------------------------------------------------------- #
+# Analyze dataset difficulty based on idx_to_passrate mapping                 #
+# --------------------------------------------------------------------------- #
+def analyze_dataset_difficulty(idx_to_pass_rate: Dict[str, float]) -> None:
+    """
+    Analyze difficulty distribution based on idx_to_passrate mapping.
+    
+    Args:
+        idx_to_pass_rate: Dictionary mapping unique idx to pass_rate
+    """
+    if not idx_to_pass_rate:
+        console.print(f"[error]Empty mapping provided for analysis[/error]")
         return
 
-    # Get all model directories if model_names not specified
-    if model_names is None:
-        model_names = [d for d in os.listdir(dataset_dir) 
-                      if os.path.isdir(os.path.join(dataset_dir, d))]
+    # Extract pass rates
+    pass_rates = list(idx_to_pass_rate.values())
+    
+    # Calculate statistics
+    mean_pass_rate = float(np.mean(pass_rates))
+    median_pass_rate = float(np.median(pass_rates))
+    std_pass_rate = float(np.std(pass_rates))
+    
+    # Print basic statistics
+    stats_table = Table(show_header=True, header_style="bold magenta")
+    stats_table.add_column("Metric")
+    stats_table.add_column("Value")
+    
+    stats = {
+        "Total samples": len(pass_rates),
+        "Mean pass rate": f"{mean_pass_rate:.3f}",
+        "Median pass rate": f"{median_pass_rate:.3f}",
+        "Std pass rate": f"{std_pass_rate:.3f}",
+    }
+    
+    for metric, value in stats.items():
+        stats_table.add_row(metric, str(value))
+    
+    console.print(stats_table)
 
-    with Progress(
-        SpinnerColumn(),
-        *Progress.get_default_columns(),
-        TimeElapsedColumn(),
-        console=console
-    ) as progress:
-        task = progress.add_task(f"Analyzing models for {dataset_name}", total=len(model_names))
+    # Print difficulty distribution
+    dist_table = Table(show_header=True, header_style="bold magenta")
+    dist_table.add_column("Difficulty")
+    dist_table.add_column("Pass Rate Range")
+    dist_table.add_column("Count")
+    dist_table.add_column("Percentage")
+    
+    # Count exact 0s and 1s
+    exact_zeros = sum(1 for r in pass_rates if r == 0.0)
+    exact_ones = sum(1 for r in pass_rates if r == 1.0)
+    
+    # Add special categories for exactly 0 and exactly 1
+    dist_table.add_row(
+        "Impossible",
+        "Exactly 0.0",
+        str(exact_zeros),
+        f"{(exact_zeros / len(pass_rates)) * 100:.1f}%"
+    )
+    
+    # Update bins to exclude exact 0s and 1s
+    bins = [(0, 0.2, "Very Hard", True, False), 
+           (0.2, 0.4, "Hard", False, False),
+           (0.4, 0.6, "Medium", False, False),
+           (0.6, 0.8, "Easy", False, False),
+           (0.8, 1.0, "Very Easy", False, True)]
+    
+    for bin_start, bin_end, difficulty, exclude_start, exclude_end in bins:
+        # Count items in this bin, respecting exclusions
+        count = sum(1 for r in pass_rates if 
+                   (bin_start < r if exclude_start else bin_start <= r) and
+                   (r < bin_end if exclude_end else r <= bin_end))
         
-        for model in model_names:
-            progress.print(f"\n[bold]Analyzing Model: {model}[/bold]")
-            model_dir = os.path.join(dataset_dir, model)
-            
-            # Get concatenated results based on save_concat preference
-            results_path = os.path.join(model_dir, "concatenated_results.json")
-            data = None
-            
-            if os.path.exists(results_path) and not force_reconcat:
-                data = read_json(results_path)
-            
-            if data is None or not data or "results" not in data or force_reconcat:
-                try:
-                    data = concat_model_results(output_dir, dataset_name, model, force_reconcat, save_to_file=save_concat)
-                except Exception as e:
-                    progress.print(f"[error]Failed to concatenate results for {model}: {e}[/error]")
-                    progress.advance(task)
-                    continue
-
-            if not data or "results" not in data:
-                progress.print(f"[warning]No valid results found for {model}[/warning]")
-                progress.advance(task)
-                continue
-
-            # Calculate pass rates
-            pass_rates = []
-            for sample in data["results"].values():
-                pass_rates.append(sample["pass_rate"])
-
-            if not pass_rates:
-                progress.print(f"[warning]No pass rates found for {model}[/warning]")
-                progress.advance(task)
-                continue
-
-            # Calculate statistics
-            mean_pass_rate = float(np.mean(pass_rates))
-            median_pass_rate = float(np.median(pass_rates))
-            std_pass_rate = float(np.std(pass_rates))
-            
-            # Create analysis data structure
-            analysis_data = {
-                "statistics": {
-                    "total_samples": len(pass_rates),
-                    "mean_pass_rate": mean_pass_rate,
-                    "median_pass_rate": median_pass_rate,
-                    "std_pass_rate": std_pass_rate,
-                },
-                "difficulty_distribution": {}
-            }
-            
-            # Print basic statistics
-            stats_table = Table(show_header=True, header_style="bold magenta")
-            stats_table.add_column("Metric")
-            stats_table.add_column("Value")
-            
-            stats = {
-                "Total samples": len(pass_rates),
-                "Mean pass rate": f"{mean_pass_rate:.3f}",
-                "Median pass rate": f"{median_pass_rate:.3f}",
-                "Std pass rate": f"{std_pass_rate:.3f}",
-            }
-            
-            for metric, value in stats.items():
-                stats_table.add_row(metric, str(value))
-            
-            progress.print(stats_table)
-
-            # Print and calculate difficulty distribution
-            dist_table = Table(show_header=True, header_style="bold magenta")
-            dist_table.add_column("Difficulty")
-            dist_table.add_column("Pass Rate Range")
-            dist_table.add_column("Count")
-            dist_table.add_column("Percentage")
-            
-            # Count exact 0s and 1s
-            exact_zeros = sum(1 for r in pass_rates if r == 0.0)
-            exact_ones = sum(1 for r in pass_rates if r == 1.0)
-            
-            # Add special categories for exactly 0 and exactly 1
-            dist_table.add_row(
-                "Impossible",
-                "Exactly 0.0",
-                str(exact_zeros),
-                f"{(exact_zeros / len(pass_rates)) * 100:.1f}%"
-            )
-            
-            # Update bins to exclude exact 0s and 1s
-            bins = [(0, 0.2, "Very Hard", True, False), 
-                   (0.2, 0.4, "Hard", False, False),
-                   (0.4, 0.6, "Medium", False, False),
-                   (0.6, 0.8, "Easy", False, False),
-                   (0.8, 1.0, "Very Easy", False, True)]
-            
-            # Add to analysis data for exact 0
-            analysis_data["difficulty_distribution"]["Impossible"] = {
-                "range": [0.0, 0.0],
-                "count": exact_zeros,
-                "percentage": (exact_zeros / len(pass_rates)) * 100
-            }
-            
-            for bin_start, bin_end, difficulty, exclude_start, exclude_end in bins:
-                # Count items in this bin, respecting exclusions
-                count = sum(1 for r in pass_rates if 
-                           (bin_start < r if exclude_start else bin_start <= r) and
-                           (r < bin_end if exclude_end else r <= bin_end))
-                
-                percentage = (count / len(pass_rates)) * 100
-                
-                # Show range notation with appropriate brackets
-                range_str = f"{'(' if exclude_start else '['}{bin_start:.1f}-{bin_end:.1f}{')' if exclude_end else ']'}"
-                
-                dist_table.add_row(
-                    difficulty,
-                    range_str,
-                    str(count),
-                    f"{percentage:.1f}%"
-                )
-                
-                # Add to analysis data
-                analysis_data["difficulty_distribution"][difficulty] = {
-                    "range": [bin_start, bin_end],
-                    "exclude_start": exclude_start,
-                    "exclude_end": exclude_end,
-                    "count": count,
-                    "percentage": percentage
-                }
-            
-            # Add special category for exactly 1
-            dist_table.add_row(
-                "Perfect",
-                "Exactly 1.0",
-                str(exact_ones),
-                f"{(exact_ones / len(pass_rates)) * 100:.1f}%"
-            )
-            
-            # Add to analysis data for exact 1
-            analysis_data["difficulty_distribution"]["Perfect"] = {
-                "range": [1.0, 1.0],
-                "count": exact_ones,
-                "percentage": (exact_ones / len(pass_rates)) * 100
-            }
-            
-            progress.print(dist_table)
-            
-            # Save analysis data to JSON file
-            analysis_path = os.path.join(model_dir, "analysis_results.json")
-            try:
-                with open(analysis_path, 'w') as f:
-                    json.dump(analysis_data, f, indent=2, default=json_default)
-                progress.print(f"[success]Saved analysis results to {analysis_path}[/success]")
-            except Exception as e:
-                progress.print(f"[error]Failed to save analysis results for {model}: {e}[/error]")
-            
-            progress.print()  # Add a blank line between models
-            progress.advance(task)
+        percentage = (count / len(pass_rates)) * 100
+        
+        # Show range notation with appropriate brackets
+        range_str = f"{'(' if exclude_start else '['}{bin_start:.1f}-{bin_end:.1f}{')' if exclude_end else ']'}"
+        
+        dist_table.add_row(
+            difficulty,
+            range_str,
+            str(count),
+            f"{percentage:.1f}%"
+        )
+    
+    # Add special category for exactly 1
+    dist_table.add_row(
+        "Perfect",
+        "Exactly 1.0",
+        str(exact_ones),
+        f"{(exact_ones / len(pass_rates)) * 100:.1f}%"
+    )
+    
+    console.print(dist_table)
 
 def main():
     parser = argparse.ArgumentParser(description="Dataset difficulty analysis tools")
     subparsers = parser.add_subparsers(dest='command', help='Command to execute')
 
-    # Concat command
-    concat_parser = subparsers.add_parser('concat', help='Concatenate results for a model')
-    concat_parser.add_argument('--output_dir', type=str, required=True, help='Base output directory')
-    concat_parser.add_argument('--dataset', type=str, required=True, help='Dataset name')
-    concat_parser.add_argument('--model', type=str, required=True, help='Model name')
-    concat_parser.add_argument('--force', action='store_true', help='Force re-concatenation even if file exists')
+    # Map command to generate idx to pass_rate mapping
+    map_parser = subparsers.add_parser('map', help='Generate idx to pass_rate mapping')
+    map_parser.add_argument('--output_dir', type=str, required=True, help='Base output directory')
+    map_parser.add_argument('--dataset', type=str, required=True, help='Dataset name')
+    map_parser.add_argument('--model', type=str, required=True, help='Model name to process')
 
-    # Analyze command
+    # Analyze command with support for multiple datasets
     analyze_parser = subparsers.add_parser('analyze', help='Analyze dataset difficulty')
     analyze_parser.add_argument('--output_dir', type=str, required=True, help='Base output directory')
-    analyze_parser.add_argument('--dataset', type=str, required=True, help='Dataset name')
-    analyze_parser.add_argument('--models', type=str, nargs='*', help='Optional: specific models to analyze')
-    analyze_parser.add_argument('--force_reconcat', action='store_true', help='Force re-concatenation of results')
-    analyze_parser.add_argument('--save_concat', action='store_true', help='Save concatenated results after analysis')
+    analyze_parser.add_argument('--datasets', type=str, nargs='+', required=True, help='Dataset name(s) to analyze')
+    analyze_parser.add_argument('--model', type=str, required=True, help='Model name to analyze')
+    analyze_parser.add_argument('--regenerate', action='store_true', help='Regenerate idx to pass_rate mapping')
+    analyze_parser.add_argument('--save_combined', action='store_true', help='Save combined mapping (default: False)')
 
     args = parser.parse_args()
 
-    if args.command == 'concat':
-        concat_model_results(args.output_dir, args.dataset, args.model, args.force)
+    if args.command == 'map':
+        generate_idx_mapping(args.output_dir, args.dataset, args.model)
     elif args.command == 'analyze':
-        analyze_dataset_difficulty(args.output_dir, args.dataset, args.models, 
-                                 args.force_reconcat, args.save_concat)
+        # Handle multiple datasets
+        combined_mapping = {}
+        all_seen_idx = set()
+        
+        for dataset_name in args.datasets:
+            console.print(f"\n[bold]Processing dataset: {dataset_name}[/bold]")
+            model_dir = os.path.join(args.output_dir, dataset_name, args.model)
+            
+            if not os.path.exists(model_dir):
+                console.print(f"[warning]Directory {model_dir} does not exist, skipping[/warning]")
+                continue
+            
+            mapping_path = os.path.join(model_dir, "idx_to_passrate.json")
+            idx_to_pass_rate = {}
+            
+            # Generate or load mapping
+            if args.regenerate:
+                console.print(f"[bold]Regenerating mapping for {dataset_name} with {args.model}[/bold]")
+                idx_to_pass_rate = generate_idx_mapping(args.output_dir, dataset_name, args.model)
+            elif not os.path.exists(mapping_path):
+                console.print(f"[error]Mapping file not found: {mapping_path}[/error]")
+                console.print(f"[info]Generating mapping for {dataset_name} with {args.model}[/info]")
+                idx_to_pass_rate = generate_idx_mapping(args.output_dir, dataset_name, args.model)
+            else:
+                idx_to_pass_rate = read_json(mapping_path)
+                console.print(f"[info]Loaded existing mapping for {dataset_name} with {len(idx_to_pass_rate)} samples[/info]")
+            
+            # Check for duplicate idx across datasets
+            for idx in idx_to_pass_rate:
+                if idx in all_seen_idx:
+                    console.print(f"[warning]Duplicate idx '{idx}' found across multiple datasets, last occurrence will be used[/warning]")
+                all_seen_idx.add(idx)
+            
+            # Add to combined mapping
+            combined_mapping.update(idx_to_pass_rate)
+        
+        # Save combined mapping if requested
+        if args.save_combined and len(args.datasets) > 1:
+            # Determine base dataset name by removing "_chunk_XX" from dataset names
+            dataset_bases = set()
+            for dataset_name in args.datasets:
+                if "_chunk" in dataset_name:
+                    base_name = dataset_name.split("_chunk")[0]
+                    dataset_bases.add(base_name)
+                else:
+                    dataset_bases.add(dataset_name)
+            
+            # Use the base name if all datasets have the same base, otherwise use "combined"
+            if len(dataset_bases) == 1:
+                combined_name = list(dataset_bases)[0]
+            else:
+                combined_name = "combined"
+            
+            # Create directory if it doesn't exist
+            combined_dir = os.path.join(args.output_dir, combined_name)
+            os.makedirs(combined_dir, exist_ok=True)
+            
+            combined_path = os.path.join(combined_dir, f"{args.model}_combined.json")
+            try:
+                with open(combined_path, 'w') as f:
+                    json.dump(combined_mapping, f, indent=2, default=json_default)
+                console.print(f"[success]Saved combined mapping for {args.model} with {len(combined_mapping)} samples to {combined_path}[/success]")
+            except Exception as e:
+                console.print(f"[error]Failed to save combined mapping: {e}[/error]")
+        
+        # Always analyze the mapping (whether single dataset or combined)
+        dataset_label = args.datasets[0] if len(args.datasets) == 1 else f"{len(args.datasets)} combined datasets"
+        console.print(f"\n[bold]Analyzing {dataset_label} for {args.model}[/bold]")
+        analyze_dataset_difficulty(combined_mapping)
     else:
         parser.print_help()
 
