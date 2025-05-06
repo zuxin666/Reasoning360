@@ -29,9 +29,10 @@ class MultiHierTTFilter(LengthFilter):
 
     def check(self, example):
         # Only keep arithmetic questions
-        question_type = example["qa"]["question_type"]
-        if question_type != "arithmetic":
-            return False
+        # TODO: Now comment to include non-operation questions to enlarge the dataset
+        # question_type = example["qa"]["question_type"]
+        # if question_type != "arithmetic":
+        #     return False
         # Filter out questions that need text evidence
         text_evidence = example["qa"]["text_evidence"]
         if text_evidence != []:

@@ -13,7 +13,7 @@ from verl.utils.data_process.prompt import build_zero_style_prompt
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 from verl.utils.data_process.filter import LengthFilter
 
-InstructionFollow = "Please output the final answer within \\boxed{}."
+InstructionFollow = "Please output the final answer within ```json```"
 RawInputPredictionPrompt = """You are given a question that requires some input and output variables as follows:
 {{problem_description}}
 The input and output requirements are as follows:
@@ -57,7 +57,7 @@ def get_datasets(cache_dir, download=False):
         time.sleep(5)
     
     # Build the dataset. Only keep the first "input/output" pair for each code sample for diversity.
-    max_entry_to_load = 100000  # hard-code to save processing time
+    max_entry_to_load = 200000  # hard-code to save processing time
     with open(data_path, "r") as f:
         for line in f:
             if N_code >= max_entry_to_load:

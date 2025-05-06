@@ -24,7 +24,7 @@ The question is:
 
 
 class HiTabFilter(LengthFilter):
-    """Filter for MultiHierTT dataset to keep only arithmetic questions without text evidence."""
+    """Filter for HiTab dataset to keep only arithmetic questions without text evidence."""
     
     def __init__(self, tokenizer, max_length=2048):
         super().__init__(tokenizer=tokenizer, max_length=max_length)
@@ -32,8 +32,9 @@ class HiTabFilter(LengthFilter):
     def check(self, example):
         # Only keep questions requiring operations on the table
         aggregation = example["aggregation"]
-        if 'none' in aggregation:
-            return False
+        # TODO: Now comment to include non-operation questions to enlarge the dataset
+        # if 'none' in aggregation:
+        #     return False
 
         # Ensure the prompt length is within the specified range
         length_check = super().check(example)

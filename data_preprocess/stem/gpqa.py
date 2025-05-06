@@ -16,7 +16,7 @@ def get_datasets():
     Loads the GPQA dataset.
     """
     try:
-        dataset = load_dataset("Idavidrein/gpqa", "gpqa_main")["train"]
+        dataset = load_dataset("Idavidrein/gpqa", "gpqa_diamond")["train"]
         print(f"GPQA dataset: {len(dataset)} examples")
         return None, dataset
     except Exception as e:
