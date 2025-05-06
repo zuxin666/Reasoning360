@@ -71,6 +71,7 @@ def main():
     for ex in samples:
         processed.append({
             "data_source": "stem_web",
+            "data_source": "stem_web",
             "prompt": make_prompt(ex["question"]),
             "raw_prompt": ex["question"],
             "ability": "QA",

@@ -62,7 +62,7 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
     elif data_source in ['stem__gpqa']:
         from . import gpqa
         res = gpqa.compute_score(solution_str, ground_truth)
-    elif data_source in ['WebInstruct-le30'] :
+    elif data_source in ['stem_web'] :
         from . import stem_llm_judge
         res = stem_llm_judge.compute_score(data_source=data_source, model_output=solution_str, ground_truth=ground_truth, extra_info=extra_info)
     else:
