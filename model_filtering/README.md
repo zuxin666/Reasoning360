@@ -138,3 +138,57 @@ The analysis output categorizes problems into seven difficulty levels:
 - Easy (pass rate 0.6-0.8)
 - Very Easy (pass rate 0.8-1.0, exclusive)
 - Perfect (pass rate exactly 1.0)
+
+
+# Annotate Pass Rates Script *run_add_pr.py*
+
+This script adds two new columns to each row of a Parquet dataset, reflecting pass-rate values loaded from two JSON files:
+
+* **`low_pass_rate`**: pass rate from the `--low_json` mapping (default is 0.0 if missing)
+* **`high_pass_rate`**: pass rate from the `--high_json` mapping (default is 0.0 if missing)
+
+## Usage
+
+```bash
+python run_add_pr.py \
+  --parquet_in   <input_dataset>.parquet \
+  --low_json     low_pass_rates.json \
+  --high_json    high_pass_rates.json \
+  --parquet_out_dir  directory for saving processed parquet
+```
+
+## Command-Line Arguments
+
+| Argument        | Description                                              | Required |
+| --------------- | -------------------------------------------------------- | -------- |
+| `--parquet_in`  | Path to the input Parquet file to annotate.              | Yes      |
+| `--low_json`    | JSON file mapping `idx → pass_rate` for low thresholds.  | Yes      |
+| `--high_json`   | JSON file mapping `idx → pass_rate` for high thresholds. | Yes      |
+| `--parquet_out_dir` | Directory where the annotated Parquet file will be saved.     | Yes      |
+
+# Filter by Pass-Rate Thresholds *run_filter.py*
+
+This script filters a Parquet dataset based on pass-rate thresholds defined in two JSON files. It uses **Rich** for a colored, tabular console summary.
+
+## Usage
+
+```bash
+python run_filter.py \
+  --parquet_in     <input>.parquet  \
+  --parquet_out_dir <output_directory>  \
+  --low_json       low_pass_rates.json  \
+  --high_json      high_pass_rates.json \
+  --low_thresh     0.1  \
+  --high_thresh    0.9
+```
+
+## Arguments
+
+| Flag                | Description                                                 |
+| ------------------- | ----------------------------------------------------------- |
+| `--parquet_in`      | Path to the source Parquet file                             |
+| `--parquet_out_dir` | Directory where filtered Parquet files will be saved        |
+| `--low_json`        | JSON mapping `idx → pass_rate` for low-threshold filtering  |
+| `--high_json`       | JSON mapping `idx → pass_rate` for high-threshold filtering |
+| `--low_thresh`      | Drop rows with pass rate **≤** this value in low json                  |
+| `--high_thresh`     | Drop rows with pass rate **≥** this value in high json                  |
