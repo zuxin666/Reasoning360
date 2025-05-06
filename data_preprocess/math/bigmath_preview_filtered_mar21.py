@@ -132,7 +132,7 @@ if __name__ == "__main__":
 
     # Download the datasets from Hugging Face Hub
     cache_dir = datasets.config.HF_DATASETS_CACHE
-    train_dataset, test_datasets = get_datasets(cache_dir)
+    train_dataset, _ = get_datasets(cache_dir)
     data_source = f"{args.domain}__{args.name}"
 
     # Process train dataset
@@ -150,31 +150,8 @@ if __name__ == "__main__":
         sample_size=args.train_sample_size
     )
 
-    # Process test datasets
-    test_output_dir = os.path.join(args.data_dir, "test")
-    test_output_paths = []
-    test_data_sources = [  # hard-coded for now as only bigmath handles all the test datasets
-        "minerva",
-        "aime_repeated_8x",
-        "amc_repeated_4x",
-        "olympiad_bench",
-        "math",
-    ]
-    for test_data_source, test_data in zip(test_data_sources, test_datasets):
-        process_fn = make_map_fn("test", test_data_source, args.test_reward_metric)
-        test_data = test_data.map(process_fn, with_indices=True)
-        dataset_name = os.path.basename(test_data_source.lower())
-        test_output_path = save_dataset(
-            dataset=test_data,
-            output_dir=test_output_dir,
-            filename_prefix=f"{args.domain}__{dataset_name}",
-            sample_size=None
-        )
-        test_output_paths.append(test_output_path)
-
     print(f"Done! \n"
-          f"Train data saved to {train_output_path}\n"
-          f"Test data saved to {test_output_paths}")
+          f"Train data saved to {train_output_path}")
 
     # python bigmath_preview_filtered_mar21.py
     

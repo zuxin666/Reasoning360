@@ -40,10 +40,11 @@ def get_datasets(cache_dir: str):
     )
     
     print(f"Loading the test datasets...")
-    test_datasets = [
-        datasets.load_dataset(test_data_source, trust_remote_code=True, split="test", cache_dir=cache_dir)
+    test_datasets = {
+        os.path.basename(test_data_source.lower()):
+            datasets.load_dataset(test_data_source, trust_remote_code=True, split="test", cache_dir=cache_dir)
         for test_data_source in test_data_sources
-    ]
+    }
     
     return train_dataset, test_datasets
 
@@ -155,24 +156,19 @@ if __name__ == "__main__":
     # Process test datasets
     test_output_dir = os.path.join(args.data_dir, "test")
     test_output_paths = []
-    test_data_sources = [
-        "minerva",
-        "aime_repeated_8x",
-        "amc_repeated_4x",
-        "olympiad_bench",
-        "math",
-    ]
-    for test_data_source, test_data in zip(test_data_sources, test_datasets):
+    for test_data_source, test_data in test_datasets.items():
+        test_data_source = f"{args.domain}__{test_data_source}"
         process_fn = make_map_fn("test", test_data_source, args.test_reward_metric)
         test_data = test_data.map(process_fn, with_indices=True)
-        dataset_name = os.path.basename(test_data_source.lower())
         test_output_path = save_dataset(
             dataset=test_data,
             output_dir=test_output_dir,
-            filename_prefix=f"{args.domain}__{dataset_name}",
+            filename_prefix=test_data_source,
             sample_size=None
         )
         test_output_paths.append(test_output_path)
+        print(f"test_data_source: {test_data_source}")
+        print(f"Test data saved to {test_output_path}")
 
     print(f"Done! \n"
           f"Train data saved to {train_output_path}\n"
