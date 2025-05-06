@@ -55,8 +55,10 @@ def make_map_fn(split: str, data_source: str) -> callable:
         test_code_with_check = f"{test_code}\n\ncheck({entry_point})"
         
         # Verify the canonical solution passes the tests
-        full_code = f"{prompt}\n{solution}\n{test_code}\n\ncheck({entry_point})"
+        # full_code = f"{prompt}\n{solution}\n{test_code}\n\ncheck({entry_point})"
+        full_code = f"{example['prompt']}\n{solution}\n{test_code}\n\ncheck({entry_point})"
         succ, err = code_exec(full_code, timeout=5)
+        print(f"[DEBUG] succ: {succ}, err: {err}")
         if not succ:
             print(f"Error in canonical solution for task {task_id}: {err}")
             return skip_response
@@ -118,15 +120,17 @@ if __name__ == '__main__':
     # Load the dataset
     cache_dir = datasets.config.HF_DATASETS_CACHE
     _, dataset = get_datasets(cache_dir=cache_dir)
+    print(f"[DEBUG] dataset: {len(dataset)}")
 
     # Process the dataset
     process_fn = make_map_fn('test', data_source)
     
     dataset = dataset.map(function=process_fn, with_indices=True)
+    print(f"[DEBUG] processed dataset: {len(dataset)}")
 
     # Filter out examples where processing failed
     dataset = dataset.filter(lambda x: x["data_source"] == data_source)
-
+    print(f"[DEBUG] filtered dataset: {len(dataset)}")
     # Length filter
     try:
         tokenizer = transformers.AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B")
