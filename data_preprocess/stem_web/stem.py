@@ -68,7 +68,7 @@ def main():
     processed = []
     for ex in samples:
         processed.append({
-            "data_source": "WebInstruct-le30",
+            "data_source": "stem_web",
             "prompt": make_prompt(ex["question"]),
             "raw_prompt": ex["question"],
             "ability": "QA",
