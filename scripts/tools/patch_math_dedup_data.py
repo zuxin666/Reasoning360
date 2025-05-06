@@ -21,7 +21,7 @@ def load_dataset(data_name: str, data_dir: str) -> datasets.Dataset:
     return dataset
     
 dataset1 = load_dataset(data_name1, "data/train")
-dataset1 = dataset1.filter(lambda x: "dapo" in x["data_source"])
+dataset1 = dataset1.filter(lambda x: "dapo" in x["data_source"] or "deepscaler" in x["data_source"])
 print(f"Filtered dataset1 to {len(dataset1)} items")
 dataset2 = load_dataset(data_name2, "data/train")
 print(f"Loaded dataset2 from {data_name2}, with {len(dataset2)} items")
