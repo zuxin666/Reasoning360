@@ -138,12 +138,21 @@ def extract_idx_to_passrate(output_dir: str, dataset_name: str, model_name: str)
         # Extract idx to pass_rate mapping
         for key, value in data["results"].items():
             idx = None
-            # Try different variations of index field names
             if "extra_info" in value:
+                # Check if extra_info contains an index field
                 for index_field in ["index", "idx", "id"]:
                     if index_field in value["extra_info"]:
                         idx = value["extra_info"][index_field]
                         break
+                
+                # Assert that we found an index
+                assert idx is not None, f"No index field found in extra_info for sample {key}"
+                
+                # Assert that source exists in the value
+                assert "source" in value, f"No 'source' field found in value for sample {key}"
+                
+                # Create combined id with source and index
+                idx = f"{value['source']}_{idx}"
             
             if idx is not None:
                 # Check for duplicate idx
