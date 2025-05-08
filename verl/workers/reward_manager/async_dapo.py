@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from functools import partial
 from collections import defaultdict
 
@@ -47,7 +47,7 @@ async def single_compute_score(compute_score_fn, data_source, solution_str, grou
 async def parallel_compute_score_async(compute_score_fn, data_sources, solutions, ground_truths, 
                                       extra_infos, num_processes=64):
     results = []
-    with ProcessPoolExecutor(max_workers=num_processes) as executor:
+    with ThreadPoolExecutor(max_workers=num_processes) as executor:
         # Create tasks for all items
         tasks_async = [
             single_compute_score(compute_score_fn, data_source, solution, ground_truth, 
