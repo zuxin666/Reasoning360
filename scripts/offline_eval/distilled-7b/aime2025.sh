@@ -3,11 +3,12 @@
 
 # leaderboard list (the name should math the test file name)
 leaderboard_list=(
-  # "aime"           # math
-  # "math"           # math
-  # "olympiad_bench" # math
-  # "humaneval"      # codegen
-  "mbpp"           # codegen
+#   "aime"           # math
+  "aime2025"       # math
+#   "math"           # math
+#   "olympiad_bench" # math
+#   "humaneval"      # codegen
+#   "mbpp"           # codegen
 #   "livecodebench"  # codegen
 #   "gpqa"           # stem
 )
@@ -29,7 +30,7 @@ temperature=1.0
 top_k=-1 # 0 for hf rollout, -1 for vllm rollout
 top_p=0.7
 prompt_length=1024
-response_length=8192
+response_length=32768
 tensor_model_parallel_size=2
 gpu_memory_utilization=0.8
 ### ============== leadboard eval config ==============
@@ -58,6 +59,7 @@ domain_mappings["humaneval"]="codegen"
 domain_mappings["livecodebench"]="codegen"
 domain_mappings["mbpp"]="codegen"
 domain_mappings["aime"]="math"
+domain_mappings["aime2025"]="math"
 domain_mappings["math"]="math"
 domain_mappings["minerva"]="math"
 domain_mappings["olympiad_bench"]="math"
@@ -113,7 +115,7 @@ for leaderboard in "${leaderboard_list[@]}"; do
             rollout.top_p=$top_p \
             rollout.prompt_length=$prompt_length \
             rollout.response_length=$response_length \
-            rollout.max_num_batched_tokens=16384 \
+            rollout.max_num_batched_tokens=33792 \
             rollout.tensor_model_parallel_size=$tensor_model_parallel_size \
             rollout.gpu_memory_utilization=$gpu_memory_utilization
     } 2>&1 | tee -a "$gen_log_file"

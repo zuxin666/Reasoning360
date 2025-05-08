@@ -3,7 +3,6 @@ Preprocess the GPQA dataset to parquet format
 """
 
 import os
-import re
 import argparse
 import random
 from datasets import load_dataset, Dataset
@@ -14,53 +13,35 @@ from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
 def get_datasets():
     """
-    Loads the GPQA dataset.
+    Loads the SuperGPQA dataset.
     """
     try:
-        dataset = load_dataset("Idavidrein/gpqa", "gpqa_main")["train"]
-        print(f"GPQA dataset: {len(dataset)} examples")
+        dataset = load_dataset("m-a-p/SuperGPQA")["train"]
+        print(f"SuperGPQA dataset: {len(dataset)} examples")
         return None, dataset
     except Exception as e:
         print(f"Error loading dataset: {e}")
         return None, None
 
 
-# adopted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/gpqa/zeroshot/utils.py
-def preprocess(text):
-    if text is None:
-        return " "
-    text = text.strip()
-    text = text.replace(" [title]", ". ")
-    text = re.sub("\\[.*?\\]", "", text)
-    text = text.replace("  ", " ")
-    return text
-
 
 def make_map_fn(split: str, data_source: str) -> callable:
-    def process_fn(example, idx):
-        # Create a default "skip" response with all required fields
-        question = example["Question"].strip()
-        correct = preprocess(example["Correct Answer"])
-        incorrect1 = preprocess(example["Incorrect Answer 1"])
-        incorrect2 = preprocess(example["Incorrect Answer 2"])
-        incorrect3 = preprocess(example["Incorrect Answer 3"])
-
-        all_choices = [incorrect1, incorrect2, incorrect3, correct]
-        random.shuffle(all_choices)
-
-        correct_index = all_choices.index(correct)
-        correct_letter = chr(65 + correct_index)
-
-        formatted_choices = ""
-        for i, choice in enumerate(all_choices):
-            letter = chr(65 + i)
-            formatted_choices += f"({letter}) {choice}\n"
+    def process_fn(example, idx):        
+        def form_options(options: list):
+            option_str = 'Options are:\n'
+            opts = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+            for opt, o in zip(options, opts):
+                option_str += f'({o}): {opt}\n'
+            return option_str
         
-        # prompt format is adopted from Appendix 3.1 in GPQA paper, also mentioned in https://github.com/huggingface/lighteval/issues/70
+        question = example["question"].strip()
+        options = form_options(example["options"])
+        query = question + '\n' + options + '\n'
+        
+        # prompt format is adopted from "General Reasoner" in https://github.com/TIGER-AI-Lab/General-Reasoner/blob/main/evaluation/eval_supergpqa.py
         prompt = (
-            f"What is the correct answer to this question:\n\n{question}\n\n"
-            f"Choices:\n{formatted_choices}\n"
-            "Format your response as follows: \"The correct answer is (insert answer here)\"."
+            f"{query}"
+            "Please reason step by step, and put your final answer option within \\boxed{}. Only put the letter in the box, e.g. \\boxed{A}. There is only one correct answer."
         )
 
         
@@ -73,13 +54,13 @@ def make_map_fn(split: str, data_source: str) -> callable:
             "apply_chat_template": True,
             "reward_model": {
                 "style": "rule",
-                "ground_truth": correct_letter,
+                "ground_truth": example["answer_letter"],
             },
             "extra_info": {
                 "split": split,
                 "index": idx,
                 "original_prompt": prompt,
-                "dataset": "Idavidrein/gpqa",
+                "dataset": "m-a-p/SuperGPQA",
             },
         }
         
@@ -99,7 +80,7 @@ if __name__ == '__main__':
                         help='Base directory to save the processed data files.')
     parser.add_argument('--domain', default="stem",
                         help='Domain of the dataset.')
-    parser.add_argument('--name', default="gpqa",
+    parser.add_argument('--name', default="supergpqa",
                         help='Name of the dataset.')
     parser.add_argument('--sample-size', type=int, default=None,
                         help='Number of samples to use from dataset. If None, use all samples.')
