@@ -22,4 +22,4 @@ export STEM_LLM_JUDGE_URL="${NODE_IP}:8000"
 echo "STEM_LLM_JUDGE_URL = $STEM_LLM_JUDGE_URL"
 
 # (4) launch the vLLM server bound to that IP
-vllm serve TIGER-Lab/general-verifier --host "$NODE_IP"
+vllm serve TIGER-Lab/general-verifier --host "$NODE_IP" -dp 8
