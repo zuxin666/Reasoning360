@@ -32,8 +32,8 @@ def keep_example(example, max_answer_len):
 # --------------------------- main ------------------------------- #
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--json_out",    default="samples_le30.json")
-    p.add_argument("--parquet_out", default="webinstruct_le30.parquet")
+    p.add_argument("--json_out",    default="stem_web.json")
+    p.add_argument("--parquet_out", default="stem_web.parquet")
     p.add_argument("--dataset",     default="TIGER-Lab/WebInstruct-verified")
     p.add_argument("--split",       default="train")
     p.add_argument("--tokenizer",   default="Qwen/Qwen3-8B")
@@ -53,22 +53,25 @@ def main():
     print(f"{len(keep_idxs)} examples with answer ≤ {args.max_answer_len} tokens")
 
     # 3) build JSON samples
+    samples_q2idx = {}
     samples = []
     for i in keep_idxs:
         ex = dict(ds[i])
         ex["token_length"] = lengths[i]
+        samples_q2idx[make_prompt(ex["question"])[0]["content"]] = ex
         samples.append(ex)
 
     os.makedirs(os.path.dirname(args.json_out) or ".", exist_ok=True)
     with open(args.json_out, "w", encoding="utf-8") as f:
-        json.dump(samples, f, ensure_ascii=False, indent=2)
+        json.dump(samples_q2idx, f, ensure_ascii=False, indent=2)
     print(f"Saved {len(samples)} samples to {args.json_out}")
 
     # 4) wrap into chat‐template records
     processed = []
     for ex in samples:
         processed.append({
-            "data_source": "WebInstruct-le30",
+            "data_source": "stem_web",
+            "data_source": "stem_web",
             "prompt": make_prompt(ex["question"]),
             "raw_prompt": ex["question"],
             "ability": "QA",
@@ -76,6 +79,7 @@ def main():
             "response": ex["answer"],
             "reward_model": {"ground_truth": ex["answer"]},
             "extra_info": {
+                "idx": ex.get("id"),
                 "category":     ex.get("category"),
                 "difficulty":   ex.get("difficulty"),
                 "answer_type":  ex.get("answer_type"),
