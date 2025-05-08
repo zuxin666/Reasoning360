@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=zhoujun-rl-guru15k-guru15k
+#SBATCH --job-name=zhoujun-rl-guru15k-mix
 #SBATCH --partition=main
 #SBATCH --nodes=4
 #SBATCH --ntasks=4

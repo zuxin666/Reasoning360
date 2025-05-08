@@ -11,6 +11,7 @@
 #SBATCH --error=slurm/%j_%x.err
 #SBATCH --exclusive
 #SBATCH --time=24:00:00
+#SBATCH --exclude=azure-hpc-H200-instance-[230-233]
 
 
 # =================== Environment ===================
@@ -308,7 +309,7 @@ offload=True
     trainer.logger=['console','wandb'] \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes="${NNODES}" \
     trainer.nnodes=$worker_num \
