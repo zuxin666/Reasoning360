@@ -61,7 +61,6 @@ def _default_compute_score(data_source, solution_str, ground_truth, extra_info=N
         # TODO: tmp placeholder using math_verify
         from . import tablereason
         res = tablereason.compute_score(solution_str, ground_truth)
-    # science
     elif data_source.startswith('stem__gpqa'):
         from . import gpqa
         res = gpqa.compute_score(solution_str, ground_truth)

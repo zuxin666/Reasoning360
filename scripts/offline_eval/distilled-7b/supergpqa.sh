@@ -5,11 +5,12 @@
 leaderboard_list=(
   # "aime"           # math
   # "math"           # math
-  "olympiad_bench" # math
-#   "humaneval"      # codegen
-#   "mbpp"           # codegen
-#   "livecodebench"  # codegen
-#   "gpqa"           # stem
+  # "olympiad_bench" # math
+  # "humaneval"      # codegen
+  # "mbpp"           # codegen
+  # "livecodebench"  # codegen
+  # "gpqa"           # stem
+  "supergpqa"      # stem
 )
 
 # gpu
@@ -62,6 +63,7 @@ domain_mappings["math"]="math"
 domain_mappings["minerva"]="math"
 domain_mappings["olympiad_bench"]="math"
 domain_mappings["gpqa"]="stem"
+domain_mappings["supergpqa"]="stem"
 
 for leaderboard in "${leaderboard_list[@]}"; do
     # Get the domain for this leaderboard
