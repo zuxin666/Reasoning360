@@ -108,7 +108,7 @@ python model_filtering/run_sample_and_postprocess.py \
 STEM_SIZE=2500
 python model_filtering/run_sample_and_postprocess.py \
     --input_data_dir /mnt/weka/home/zhuojun.cheng/leo/Reasoning360/data/train_filtered \
-    --input_data_names stem__web_31.8k_l1e-5_h0.9_19.3k_sampled_2.5k.parquet \
+    --input_data_names stem__web_31.8k_l1e-5_h0.9_19.3k \
     --output_data_dir /mnt/weka/home/zhuojun.cheng/leo/Reasoning360/data/train_guru15k \
     --target_sample_size $STEM_SIZE \
     --domain stem \

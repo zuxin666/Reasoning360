@@ -65,6 +65,16 @@ if __name__ == "__main__":
                     {"role": "user", "content": item["prompt"][0]["content"].replace(original_instruction, refined_instruction)},
                 ]
             })
+            
+        # Add 'question' key for 'stem' domain as it's required in the reward
+        if "stem" in input_data_name:
+            # add 'question' to 'extra_info'
+            dataset = dataset.map(lambda item: {
+                "extra_info": {
+                    **item["extra_info"],
+                    "question": item['raw_prompt']
+                }
+            })
         
         subset_sample_size = int(args.target_sample_size * subset_sample_sizes[input_data_name] / total_sample_size)
 
