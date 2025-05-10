@@ -11,7 +11,7 @@ python model_filtering/run_sample_and_postprocess.py \
     --domain math > math_sample.log
 
 # codegen (train)
-CODGEN_SIZE=2500
+CODEGEN_SIZE=2500
 python model_filtering/run_sample_and_postprocess.py \
     --input_data_dir /mnt/weka/home/zhuojun.cheng/leo/Reasoning360/data/train_filtered \
     --input_data_names codegen__deduped_leetcode2k_2.4k_l1e-5_h0.9_1.3k codegen__deduped_livecodebench_599_l1e-5_h0.9_451 codegen__deduped_primeintellect_9.6k_l1e-5_h0.9_7.6k codegen__deduped_taco_11.1k_l1e-5_h0.9_8.9k \

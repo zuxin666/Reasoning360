@@ -3,9 +3,9 @@
 #SBATCH --partition=main
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=40
+#SBATCH --cpus-per-task=64
 #SBATCH --gres=gpu:8
-#SBATCH --time=24:00:00
+#SBATCH --time=720:00:00
 #SBATCH --output=serve_gv_%j.log
 #SBATCH --error=serve_gv_%j.err
 
