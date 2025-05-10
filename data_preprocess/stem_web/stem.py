@@ -23,7 +23,7 @@ def make_prompt(question: str):
 
 # ------------------ filter predicates ------------------ #
 def keep_example(example, max_answer_len):
-    if len(example.get("answer", "")) == 1:
+    if len(example.get("answer", "")) == 1 and example.get("answer", "").isalpha():
         return False
     return (
         example.get("category") != "Mathematics"
