@@ -116,16 +116,20 @@ sleep 10
 
 # =================== leaderboard eval Config ===================
 leaderboard_list=(
-    # "aime2025"
+    "aime"
+    "aime2025"
     # "barc"
     "finqa"
+    "cruxeval-i"
+    "cruxeval-o"
+    "arcagi1"
 )
 
 n_nodes=8
 n_gpus_per_node=8
 gpu_ids=0,1,2,3,4,5,6,7
 
-model_path=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+model_path=sail/Qwen2.5-Math-7B-Oat-Zero
 data_folder=./data/test/
 save_folder=./data/test_leaderboard_output/
 
@@ -134,9 +138,9 @@ n_samples=1
 batch_size=1024
 temperature=1.0
 top_k=-1 # 0 for hf rollout, -1 for vllm rollout
-top_p=0.7
-prompt_length=4096
-response_length=32768
+top_p=0.95
+prompt_length=1024
+response_length=3072
 tensor_model_parallel_size=2
 gpu_memory_utilization=0.8
 
@@ -172,6 +176,8 @@ domain_mappings["gpqa"]="stem"
 domain_mappings["arcagi1"]="simulation"
 domain_mappings["barc"]="simulation"
 domain_mappings["finqa"]="table"
+domain_mappings["cruxeval-i"]="simulation"
+domain_mappings["cruxeval-o"]="simulation"
 for leaderboard in "${leaderboard_list[@]}"; do
     # Get the domain for this leaderboard
     domain=${domain_mappings[$leaderboard]}
@@ -207,7 +213,7 @@ for leaderboard in "${leaderboard_list[@]}"; do
     # Generation step with tee to generation log file
     echo "Starting generation for $leaderboard at $(date)" | tee -a "$gen_log_file"
     {
-        python3 -m verl.trainer.main_generation \
+        /mnt/weka/home/zhuojun.cheng/miniconda3/envs/Reasoning360/bin/python3 -m verl.trainer.main_generation \
             trainer.nnodes=$n_nodes \
             trainer.n_gpus_per_node=$n_gpus_per_node \
             data.path="$data_file" \
@@ -222,7 +228,7 @@ for leaderboard in "${leaderboard_list[@]}"; do
             rollout.top_p=$top_p \
             rollout.prompt_length=$prompt_length \
             rollout.response_length=$response_length \
-            rollout.max_num_batched_tokens=36864 \
+            rollout.max_num_batched_tokens=4096 \
             rollout.tensor_model_parallel_size=$tensor_model_parallel_size \
             rollout.gpu_memory_utilization=$gpu_memory_utilization
     } 2>&1 | tee -a "$gen_log_file"

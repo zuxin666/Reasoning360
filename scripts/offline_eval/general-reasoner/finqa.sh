@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=zhoujun-rl-guru15k-table2.5k
 #SBATCH --partition=main
-#SBATCH --nodes=8
-#SBATCH --ntasks=8
+#SBATCH --nodes=4
+#SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=96
@@ -116,16 +116,17 @@ sleep 10
 
 # =================== leaderboard eval Config ===================
 leaderboard_list=(
+    # "aime"
     # "aime2025"
     # "barc"
     "finqa"
 )
 
-n_nodes=8
+n_nodes=4
 n_gpus_per_node=8
 gpu_ids=0,1,2,3,4,5,6,7
 
-model_path=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+model_path=TIGER-Lab/General-Reasoner-7B-preview
 data_folder=./data/test/
 save_folder=./data/test_leaderboard_output/
 
@@ -134,7 +135,7 @@ n_samples=1
 batch_size=1024
 temperature=1.0
 top_k=-1 # 0 for hf rollout, -1 for vllm rollout
-top_p=0.7
+top_p=0.95
 prompt_length=4096
 response_length=32768
 tensor_model_parallel_size=2
@@ -207,7 +208,7 @@ for leaderboard in "${leaderboard_list[@]}"; do
     # Generation step with tee to generation log file
     echo "Starting generation for $leaderboard at $(date)" | tee -a "$gen_log_file"
     {
-        python3 -m verl.trainer.main_generation \
+        /mnt/weka/home/zhuojun.cheng/miniconda3/envs/Reasoning360/bin/python3 -m verl.trainer.main_generation \
             trainer.nnodes=$n_nodes \
             trainer.n_gpus_per_node=$n_gpus_per_node \
             data.path="$data_file" \
