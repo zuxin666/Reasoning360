@@ -33,6 +33,7 @@ from verl.utils.reward_score import (
 )
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 
 def select_reward_fn(data_source):
@@ -43,7 +44,7 @@ def select_reward_fn(data_source):
     elif data_source.startswith("table"):
         return tablereason.compute_score
     # math
-    elif data_source in ["math__aime_repeated_8x", "math", "math__olympiad_bench", "math__aime2025_repeated_8x"]:
+    elif data_source in ["math__aime_repeated_8x", "math__math", "math__olympiad_bench", "math__aime2025_repeated_8x"]:
         return naive_dapo.compute_score
     # code gen
     elif data_source in [
@@ -85,7 +86,7 @@ def main(config):
 
     total = len(dataset)
 
-    for i in range(total):
+    for i in tqdm(range(total), desc="evaluating..."):
         response_lst = responses[i]
         data_source = data_sources[i]
         # select reward score based on data_source
