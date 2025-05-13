@@ -17,6 +17,9 @@ The input is a parquet file that contains N generated sequences and (optional) t
 
 """
 
+import os
+import json
+import math
 import hydra
 from verl.utils.fs import copy_to_local
 from verl.utils.reward_score import (
@@ -86,6 +89,7 @@ def main(config):
         extra_info_data = None
 
     passes = 0
+    avg_pass = 0
 
     total = len(dataset)
 
@@ -104,13 +108,23 @@ def main(config):
             score_lst.append(score['acc'])
 
         max_score = np.max(score_lst)
-        # print(f">>> {max_score}, {score_lst}")
+        avg_pass += np.mean(score_lst)
 
         if max_score == 1:
             passes += 1
 
-    print(f"pass@1: {passes / total}")
-
+    print(f"pass@: {passes / total}")
+    
+    metric_output_path = config.data.path.replace(".parquet", "_metric.json")
+    if os.path.exists(metric_output_path):
+        with open(metric_output_path, "r") as f:
+            metric_data = json.load(f)
+        metric_data["pass@1"] = passes / total * 100.0
+        metric_data["avg_pass"] = avg_pass / total * 100.0
+    else:
+        metric_data = {"pass@1": passes / total * 100.0, "avg_pass": avg_pass / total * 100.0}
+    with open(metric_output_path, "w") as f:
+        json.dump(metric_data, f, indent=4)
 
 if __name__ == "__main__":
     main()

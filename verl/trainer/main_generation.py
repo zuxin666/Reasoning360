@@ -74,11 +74,13 @@ def main_task(config):
         dataset = pl.read_parquet(config.data.path)
         chat_lst = list(dataset[config.data.prompt_key])
         chat_lst = [list(chat) for chat in chat_lst]
+        ground_truth_lst = list(dataset["reward_model"])
         is_polars_df = True
     else:
         dataset = pd.read_parquet(config.data.path)
         chat_lst = dataset[config.data.prompt_key].tolist()
         chat_lst = [chat.tolist() for chat in chat_lst]
+        ground_truth_lst = dataset["reward_model"].tolist()
 
     tokenizer.padding_side = 'left'
     if tokenizer.pad_token is None:
@@ -164,8 +166,15 @@ def main_task(config):
         output_dir = os.path.dirname(config.data.output_path)
         makedirs(output_dir, exist_ok=True)
         dataset.to_parquet(config.data.output_path)
-
-    result_list = [{"prompt": chat, "response": output} for chat, output in zip(chat_lst, output_lst)]
+    
+    result_list = [
+        {
+            "prompt": chat,
+            "response": output,
+            "ground_truth": str(ground_truth),
+        } 
+        for chat, output, ground_truth in zip(chat_lst, output_lst, ground_truth_lst)
+    ]
     model_name = config.model.path.split('/')[-1]
     with open(config.data.output_path.replace('.parquet', f'_{model_name}.json'), 'w', encoding='utf-8') as f:
         json.dump(result_list, f, indent=2, ensure_ascii=False)
