@@ -86,7 +86,7 @@ export HYDRA_FULL_ERROR=1
 export VLLM_USE_V1=0
 # export GLOO_SOCKET_IFNAME=ens10f0np0
 
-
+unset LD_LIBRARY_PATH
 
 # =================== Ray start ===================
 # ray stop at all nodes
@@ -196,7 +196,7 @@ for leaderboard in "${leaderboard_list[@]}"; do
     # 如果是argagi1, 则 n_samples=8
 
     if [ "$leaderboard" == "arcagi1" ]; then
-        n_samples=8
+        n_samples=8 # we only use pass@8 for arcagi task
     else
         n_samples=1
     fi
@@ -268,6 +268,7 @@ for leaderboard in "${leaderboard_list[@]}"; do
 
     # Evaluation step with tee to evaluation log file
     echo "Starting evaluation for $leaderboard at $(date)" | tee -a "$eval_log_file"
+    unset LD_LIBRARY_PATH
     {
         python3 -m verl.trainer.main_eval \
             data.path="$save_path" \
