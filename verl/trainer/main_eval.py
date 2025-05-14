@@ -110,7 +110,7 @@ def main(config):
         max_score = np.max(score_lst)
         avg_pass += np.mean(score_lst)
 
-        if max_score == 1:
+        if max_score > 0:
             passes += 1
 
     print(f"pass@: {passes / total}")

@@ -42,7 +42,7 @@ def clean_llm_output(s):
                 del match_d[k]
         return match_d
 
-def joinmap_process_results(_, ground_truth, llm, debug=False):
+def joinmap_process_results(ground_truth, llm, debug=True):
     if type(ground_truth) != dict:
         ground_truth = ast.literal_eval(ground_truth)
     llm_clean = clean_llm_output(llm)
@@ -51,6 +51,7 @@ def joinmap_process_results(_, ground_truth, llm, debug=False):
             print('could not parse output')
             print('GROUND TRUTH', ground_truth)
             print('END OF OUTPUT', llm[-min(500, len(llm)):])
+            print('=' * 100)
         return 0.0
     tp = 0
     fp = 0
@@ -70,10 +71,12 @@ def joinmap_process_results(_, ground_truth, llm, debug=False):
         llm_resp = llm_clean.get(k, None)
         if not llm_resp:
             fn += 1
-    result = np.round(((2 * tp) / ((2 * tp) + fp + fn)), 2)
+    result = np.round(((2.0 * tp) / ((2.0 * tp) + fp + fn)), 2)
     if debug and result < 1:
         print('INCORRECT')
         print('GROUND TRUTH', ground_truth)
         print('SOLUTION', llm_clean)
         print('END OF OUTPUT', llm[-min(500, len(llm)):])
+        print('RESULT', result)
+        print("=" * 100)
     return result 

@@ -140,7 +140,7 @@ def remove_initial_phrase(text):
     modified_text = re.sub(pattern, '', text, flags=re.IGNORECASE)
     return modified_text.strip()
 
-def table_process_results(input_command: str, ground_truth: str, llm_answer: str, version: str = "v1", debug=False) -> int:
+def table_process_results(input_command: str, ground_truth: str, llm_answer: str, version: str = "v1", debug=True) -> int:
     if version == "v1":  
         input_format = input_command.split("Please convert the Input Table from ")[1].split(" format")[0].lower()
         output_format = input_command.split("Please convert the Input Table from ")[1].split("format to ")[1].split(" format")[0].lower()
@@ -172,6 +172,7 @@ def table_process_results(input_command: str, ground_truth: str, llm_answer: str
             print('Could not read the LLM output')
             print('GROUND TRUTH\n', ground_truth)
             print('END OF OUTPUT\n', llm_answer[-min(3000, len(llm_answer)):])
+            print('=' * 100)
             return 0
     score = check_table_reformat(output_format, llm_df, gt_df, debug)
 
@@ -191,6 +192,7 @@ def table_process_results(input_command: str, ground_truth: str, llm_answer: str
         print('GROUND TRUTH\n', 'None' if gt_df is None else gt_df.head())
         print('LLM DF\n', 'None' if llm_df is None else llm_df.head())
         print('LLM ANSWER\n', llm_clean)
+        print('=' * 100)
     return score
 
 def check_table_reformat(output_format, llm_df, gt_df, debug=False):

@@ -12,7 +12,7 @@
 #SBATCH --exclusive
 #SBATCH --time=24:00:00
 #SBATCH --qos=iq
-#SBATCH --exclude=fs-mbz-gpu-[088,317,440,497,097,186,191,275,097,186,191,275,012,041,050,071,109,139,216,282,029,121,129,195,292,310,358,465]
+#SBATCH --exclude=fs-mbz-gpu-[088,317,440,497,097,186,191,275,097,186,191,275,012,041,050,071,109,139,216,282,029,121,129,195,292,310,358,465,022,026,070,076-077,205,290,359]
 
 
 # =================== Environment ===================
@@ -116,31 +116,31 @@ sleep 10
 
 # =================== leaderboard eval Config ===================
 leaderboard_list=(
-    # "aime"
-    # "aime2025"
-    # "math"
-    # "olympiad_bench"
-    # "livecodebench"
+    "aime"
+    "aime2025"
+    "math"
+    "olympiad_bench"
+    "livecodebench"
     "mbpp"
-    # "humaneval"
-    # "arcagi1"
-    # "gpqa"
-    # "gpqa_diamond"
-    # "finqa"
-    # "cruxeval-i"
-    # "cruxeval-o"
-    # "livebench_reasoning"
-    # "livebench_language"
-    # "livebench_data_analysis"
-    # "ifeval"
-    # "supergpqa"
+    "humaneval"
+    "arcagi1"
+    "gpqa"
+    "gpqa_diamond"
+    "finqa"
+    "cruxeval-i"
+    "cruxeval-o"
+    "livebench_reasoning"
+    "livebench_language"
+    "livebench_data_analysis"
+    "ifeval"
+    "supergpqa"
 )
 
 n_nodes=8
 n_gpus_per_node=8
 gpu_ids=0,1,2,3,4,5,6,7
 
-model_path=Qwen/Qwen2.5-7B-Instruct
+model_path=Skywork/Skywork-OR1-7B-Preview
 data_folder=./data/test/
 save_folder=./data/test_leaderboard_output/
 
@@ -170,6 +170,7 @@ domain_mappings["mbpp"]="codegen"
 domain_mappings["aime"]="math"
 domain_mappings["aime2025"]="math"
 domain_mappings["math"]="math"
+domain_mappings["math_500"]="math"
 domain_mappings["minerva"]="math"
 domain_mappings["olympiad_bench"]="math"
 domain_mappings["gpqa"]="stem"
@@ -199,7 +200,7 @@ for leaderboard in "${leaderboard_list[@]}"; do
     else
         n_samples=1
     fi
-    batch_size=2048
+    batch_size=1024
     if [ "$leaderboard" == "aime" ] || [ "$leaderboard" == "aime2025" ] || [ "$leaderboard" == "arcagi1" ]; then
         temperature=0.6
         top_p=0.95
@@ -208,7 +209,7 @@ for leaderboard in "${leaderboard_list[@]}"; do
         top_p=0.95
     fi
     top_k=-1 # 0 for hf rollout, -1 for vllm rollout
-    if [ "$leaderboard" == "argagi1" ] || [ "$leaderboard" == "finqa" ] || [ "$leaderboard" == "livebench" ]; then
+    if [ "$leaderboard" == "argagi1" ] || [ "$leaderboard" == "finqa" ]; then
         prompt_length=4096
         response_length=28672
     else
