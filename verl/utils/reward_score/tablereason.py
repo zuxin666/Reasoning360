@@ -5,7 +5,7 @@ import re
 
 def _check_single_answer(answer: str, ground_truth: str) -> bool:
     try:
-        nanswer = answer.replace(",", "").replace("%", " / 100").replace("$", "").replace(":", "/")
+        nanswer = answer.replace(",", "").replace("%", " / 100").replace("$", "").replace(":", "/").replace("\\", "")
         nanswer = float(eval(nanswer))
         return math_equal(nanswer, ground_truth, tolerance=1e-3)
     except:

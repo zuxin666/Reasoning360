@@ -39,6 +39,6 @@ def compute_score(solution_str, ground_truth, extra_info):
             is_following_list.append(False)
 
     return {
-        "score": is_following_list.count(True) / len(is_following_list),
-        "acc": is_following_list.count(True) / len(is_following_list),
+        "score": all(is_following_list),
+        "acc": all(is_following_list),
     }
