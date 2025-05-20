@@ -84,6 +84,7 @@ def main_task(config):
     
     # handle n_samples
     if config.data.n_samples > 1:
+        dataset = dataset.loc[dataset.index.repeat(config.data.n_samples)].reset_index(drop=True)
         chat_lst = chat_lst * config.data.n_samples
         ground_truth_lst = ground_truth_lst * config.data.n_samples
 
