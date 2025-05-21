@@ -56,7 +56,9 @@ def select_reward_fn(data_source):
     # code gen
     elif data_source in [
         "codegen__humaneval",
+        "codegen__humanevalplus",
         "codegen__mbpp",
+        "codegen__mbppplus",
         "codegen__livecodebench",
     ]:
         return coder1.compute_score
