@@ -101,6 +101,7 @@ def main_task(config):
     config_batch_size = config.data.batch_size
     dispatch_dp_size = wg.world_size
     num_batch = -(-total_samples // config_batch_size)
+
     output_lst = []
 
     for batch_idx in range(num_batch):
