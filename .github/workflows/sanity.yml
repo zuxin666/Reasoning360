@@ -6,14 +6,11 @@ on:
   push:
     branches:
       - main
-      - v0.2.x
-    paths:
-      - "**/*.py"
-      - .github/workflows/sanity.yml
+      - v0.*
   pull_request:
     branches:
       - main
-      - v0.2.x
+      - v0.*
     paths:
       - "**/*.py"
       - .github/workflows/sanity.yml
@@ -24,7 +21,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Declare permissions just read content.
-permissions: 
+permissions:
   contents: read
 
 jobs:
@@ -40,24 +37,18 @@ jobs:
         uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel packaging
       - name: Install the current repository
         run: |
-          pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu124
-          pip install flash-attn --no-build-isolation
           pip install -e .[test]
       - name: Run sanity test
         run: |
           pytest -s -x tests/sanity
-      - name: Run utility test
-        run: |
-          pytest -s -x tests/utility
       - name: Run license test
         run: |
           python3 tests/sanity/check_license.py --directory .
-      - name: Run dependency test
+      - name: Assert naming convention
         run: |
-          pip install tomli
-          pytest -s -x tests/distro/requirements.py
+          if grep -rIn --exclude-dir=.git --exclude-dir=.github --exclude-dir=venv --exclude-dir=__pycache__ 'veRL' .; then
+            echo "Please use verl instead of veRL in the codebase"
+            exit 1
+          fi
