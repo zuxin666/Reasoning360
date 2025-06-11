@@ -113,7 +113,8 @@ if [ "$SLURM_NODEID" -eq 0 ]; then
     ${CONDA_BIN_PATH}vllm serve Qwen/Qwen3-32B \
         --host "$head_node_ip" \
         --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
-        --pipeline-parallel-size $PIPELINE_PARALLEL_SIZE
+        --pipeline-parallel-size $PIPELINE_PARALLEL_SIZE \
+        --max_model_len 32000
 fi
 # test the server
 # curl http://$NODE_IP:8000/v1/chat/completions \
