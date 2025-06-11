@@ -4,20 +4,16 @@ A pipeline for difficulty filtering using reward functions, supporting data-para
 1. **Inference stage**: Runs the model to generate responses (GPU-intensive)
 2. **Reward stage**: Evaluates responses with reward functions (CPU-intensive)
 
-## Resource Requirements
-
-- 8x H200 (140GB) GPUs
 
 ## Example Usage
 
 ### Stage 1: Inference
 
 > [!IMPORTANT]  
-> To run the model, you have to install verl and upgrade vllm to 0.8.5, please first follow the instructions in the main README.md, and then run the following command:
+> To run the Qwen3-MoE model, you need vllm>=0.8.5. You can switch to other difficulty-filtering models as needed.
 
 ```bash
-pip uninstall vllm
-pip install vllm==0.8.5
+pip install --upgrade vllm>=0.8.5
 ```
 
 #### Qwen2.5-7B-Instruct (~0.09s per data point on leetcode2k)
