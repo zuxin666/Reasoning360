@@ -42,6 +42,12 @@ This is the official repository of Reasoning360, a project dedicated to *open re
 ## Installation
 
 ```bash
+git clone git@github.com:LLM360/Reasoning360.git
+cd Reasoning360
+```
+
+
+```bash
 conda create -n Reasoning360 python=3.12
 conda activate Reasoning360
 conda install -c nvidia/label/cuda-12.4.0 cuda-toolkit cuda-nvcc
