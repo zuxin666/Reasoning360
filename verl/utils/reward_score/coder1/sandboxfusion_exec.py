@@ -6,6 +6,7 @@ from .utils import _ERROR_MSG_PREFIX, _DEFAULT_TIMEOUT_SECONDS, RunCodeResponse,
 
 # Default sandbox servers - can be overridden via environment variable or function parameter
 DEFAULT_SANDBOX_SERVERS = [
+    "127.0.0.1",  # Local SandboxFusion server
     # "fs-mbz-gpu-044", # Add more servers here
 ]
 
