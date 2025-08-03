@@ -17,7 +17,7 @@ export SANDBOX_FUSION_SERVERS="127.0.0.1"
 
 # =================== Data Mixture ===================
 SHARED_DATA_PATH=./data
-TRAIN_DATA_DIR=${SHARED_DATA_PATH}/train/
+TRAIN_DATA_DIR=${SHARED_DATA_PATH}/train_filtered/
 ONLINE_EVAL_DATA_DIR=${SHARED_DATA_PATH}/offline_eval/
 
 export train_files="[$(
@@ -77,7 +77,7 @@ clip_ratio_low=0.2
 clip_ratio_high=0.2
 
 max_prompt_length=$((1024 * 4))
-max_response_length=$((1024 * 8))
+max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
@@ -87,9 +87,9 @@ loss_agg_mode="token-mean"
 enable_filter_groups=False
 filter_groups_metric=acc
 max_num_gen_batches=10
-train_prompt_bsz=512  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+train_prompt_bsz=256  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
-n_resp_per_prompt=16
+n_resp_per_prompt=8  # Reduced for faster rollout
 train_prompt_mini_bsz=64  # model grad update batchsize
 
 # Algorithm
@@ -185,8 +185,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.recipe.dapo.src.main_dapo \
     trainer.val_before_train=False \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.save_freq=5 \
-    trainer.test_freq=5 \
-    trainer.total_epochs=5 \
+    trainer.save_freq=500 \
+    trainer.test_freq=500 \
+    trainer.total_epochs=1 \
     +trainer.val_generations_to_log_to_wandb=30 \
     trainer.resume_mode=auto
