@@ -309,7 +309,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
-                        train_batch_keys = ["responses", "input_ids", "attention_mask", "position_ids", "old_log_probs", "advantages"]
+                        train_batch_keys = ["responses", "input_ids", "attention_mask", "position_ids", "old_log_probs", "advantages", "loss_mask"]
                         if self.global_steps <= 1:
                             print(f"removing keys {set(batch.batch.keys()) - set(train_batch_keys)} for training.", flush=True)
                         train_batch = batch.select(batch_keys=train_batch_keys, non_tensor_batch_keys=set())

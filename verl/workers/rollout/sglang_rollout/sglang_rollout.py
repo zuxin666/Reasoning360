@@ -750,7 +750,6 @@ class SGLangRollout(BaseRollout):
                             self._tool_map[tool_call.function.name].execute(
                                 _req.request_id,
                                 tool_call.function.arguments,
-                                current_turns,
                                 **_req.tools_kwargs[tool_call.function.name].get("execute_kwargs", {}),
                             )
                             for tool_call in parsed_tool_calls
@@ -769,9 +768,15 @@ class SGLangRollout(BaseRollout):
                     if overall_stop or len(_req.input_ids) >= self.config.max_model_len:
                         finish_reason_type = FinishReasonTypeEnum.STOP
                         break
+
                     _req.state = AsyncRolloutRequestStateEnum.RUNNING
+                    
+                    # Print the content of tool calling
+                    print(f"uid: {_req.request_id} [turn: {current_turns}, route_to: {route_to}]\ncontent: {arguments}\nresponse: {resp}")
+
                 else:
                     raise ValueError(f"Unexpected tool calling last message state: {_req.messages[-1]}")
+            
             elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
                 # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
                 # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
@@ -795,10 +800,26 @@ class SGLangRollout(BaseRollout):
 
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
+
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
                     _req.add_assistant_message(self.tokenizer, content)
                     break
                 else:
+                    # TODO: remove this! only for mock function call testing!
+                    finish_reason_type = FinishReasonTypeEnum.TOOL_CALL
+                    _req.state = AsyncRolloutRequestStateEnum.TOOL_CALLING
+                    parsed_tool_calls = [
+                        OpenAIFunctionToolCall(
+                            id=str(0),
+                            function=OpenAIFunctionCallSchema(
+                                name="route_to_gpt4o",
+                                arguments={"system_prompt": "You are a helpful assistant.", "user_prompt": "If you are a person, what will be your name? Tell me the reason why.", "temperature": 0.7},
+                            ),
+                        )
+                    ]
+                    _req.add_assistant_message(self.tokenizer, content, tool_calls=parsed_tool_calls)
+                    continue
+
                     if self._function_call_parser and self._function_call_parser.has_tool_call(content):
                         finish_reason_type = FinishReasonTypeEnum.TOOL_CALL
                         _req.state = AsyncRolloutRequestStateEnum.TOOL_CALLING
@@ -836,6 +857,10 @@ class SGLangRollout(BaseRollout):
                             break
                     else:
                         _req.add_assistant_message(self.tokenizer, content)
+
+                        # Print the content of self-generated reasoning
+                        print(f"uid: {_req.request_id} [turn: {current_turns}, route_to: self]\ncontent: {content}")
+
                         # TODO: let the self-generated reasoning to continue instead of breaking here
                         # break
 
@@ -912,8 +937,7 @@ class SGLangRollout(BaseRollout):
             for tool_schema in _req.tool_schemas:
                 tool = self._tool_map[tool_schema.function.name]
                 create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
-                create_kwargs["max_turns"] = self.config["multi_turn"]["max_turns"]
-                create_kwargs["model_name"] = self.config["multi_turn"]["model_name"]
+                # create_kwargs["max_turns"] = self.config["multi_turn"]["max_turns"]
                 tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
             await asyncio.gather(*tool_creation_coroutines)
 
@@ -940,14 +964,14 @@ class SGLangRollout(BaseRollout):
         try:
             if self._tp_rank == 0:
 
-                print(f"[Rank {self._tp_rank}, {self._rank}] Starting async rollout with prompts, number: {len(prompts)}")
+                # print(f"[Rank {self._tp_rank}, {self._rank}] Starting async rollout with prompts, number: {len(prompts)}")
 
                 req_list = self._preprocess_prompt_to_async_rollout_requests(
                     prompts,
                     n=1 if is_validate else self.config.n,
                 )
 
-                print(f"[Rank {self._rank}] Preprocessed {len(req_list)} requests for async rollout")
+                # print(f"[Rank {self._rank}] Preprocessed {len(req_list)} requests for async rollout")
 
                 sem = asyncio.Semaphore(256)  # Limit the concurrency of async requests
                 loop = asyncio.get_event_loop()
@@ -969,6 +993,7 @@ class SGLangRollout(BaseRollout):
                 #         ],
                 #     )
                 # )
+
                 sorted_output_req_list = sorted(
                     output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset)
                 )
@@ -1124,12 +1149,13 @@ class SGLangRollout(BaseRollout):
             for rollout_offset in range(n):
                 if self._tool_schemas:
                     # _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
-                    # TODO: mock the tool kwargs for self-generated reasoning
+                    # TODO: remove this! only for mock function call testing! mock the tool kwargs for self-generated reasoning
                     _tools_kwargs = {
                         "route_to_gpt4o": {},
                         "route_to_gpt4o-mini": {},
                         "route_to_user": {},
                     }
+
                     _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
                     _input_ids = None
                     _attention_mask = None

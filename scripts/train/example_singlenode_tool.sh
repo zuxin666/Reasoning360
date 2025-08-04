@@ -1,6 +1,7 @@
 #!/bin/bash
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export OPENAI_API_KEY="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"
 
 # =================== Frequently Used Variables ===================
 RESUME_CKPT_DIR_NAME=""  # Fill in the checkpoint directory name to resume from, otherwise from scratch
@@ -39,7 +40,7 @@ export test_files="[$(
 echo "test_files = $test_files"
 
 # =================== Model ===================
-BASE_MODEL=/fsx/home/cqian/projects/model/Qwen2.5-0.5B-Instruct
+BASE_MODEL=/fsx/home/cqian/projects/model/Qwen2.5-3B-Instruct
 
 # =================== Logging ===================
 WANDB_PROJECT=Reasoning360
@@ -78,8 +79,8 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.2
 
-max_prompt_length=$((1024 * 4))
-max_response_length=$((1024 * 8))
+max_prompt_length=$((1024 * 5))
+max_response_length=$((1024 * 3))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
@@ -111,7 +112,7 @@ offload=True
 
 # Tool Config
 tool_config_path="./examples/sglang_multiturn/config/tool_config/router_tool_config.yaml"
-max_turns=10
+max_turns=3
 
 # =================== Start RL training ===================
 PYTHONUNBUFFERED=1 python3 -m verl.recipe.dapo.src.main_dapo \

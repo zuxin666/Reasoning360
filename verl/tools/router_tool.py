@@ -99,20 +99,6 @@ class GPTTool(BaseTool):
             
             return f"Error calling {self.default_model}: {str(e)}", 0.0, self.default_model, json.dumps(parameters), {"error": str(e)}
 
-    async def calc_reward(self, instance_id: str, **kwargs) -> float:
-        """Calculate final reward for the conversation."""
-        context = conversation_context.get_context(instance_id)
-        
-        # Calculate reward based on successful calls
-        calls = [c for c in context if c["route_to"] == self.default_model]
-        if not calls:
-            return 0.0
-        
-        successful_calls = sum(1 for call in calls 
-                             if not call["feedback"].startswith("Error:"))
-        
-        return successful_calls / len(calls)
-
     async def release(self, instance_id: str, **kwargs) -> None:
         # Release the context
         conversation_context.clear_context(instance_id)
@@ -192,20 +178,6 @@ class UserTool(BaseTool):
             )
             
             return f"Error in user interaction: {str(e)}", 0.0, self.default_model, json.dumps(parameters), {"error": str(e)}
-
-    async def calc_reward(self, instance_id: str, **kwargs) -> float:
-        """Calculate final reward for user interactions."""
-        context = conversation_context.get_context(instance_id)
-        
-        # Calculate reward based on successful user interactions
-        user_calls = [c for c in context if c["route_to"] == "user"]
-        if not user_calls:
-            return 0.0
-        
-        successful_calls = sum(1 for call in user_calls 
-                             if not call["feedback"].startswith("Error:"))
-        
-        return successful_calls / len(user_calls)
 
     async def release(self, instance_id: str, **kwargs) -> None:
         """Release the tool instance."""
