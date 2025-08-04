@@ -1,7 +1,6 @@
 #!/bin/bash
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 # =================== Frequently Used Variables ===================
 RESUME_CKPT_DIR_NAME=""  # Fill in the checkpoint directory name to resume from, otherwise from scratch
@@ -40,7 +39,7 @@ export test_files="[$(
 echo "test_files = $test_files"
 
 # =================== Model ===================
-BASE_MODEL=/fsx/home/cqian/projects/model/Qwen2.5-3B-Instruct
+BASE_MODEL=/fsx/home/cqian/projects/model/Qwen2.5-0.5B-Instruct
 
 # =================== Logging ===================
 WANDB_PROJECT=Reasoning360
@@ -92,7 +91,7 @@ filter_groups_metric=acc
 max_num_gen_batches=10
 train_prompt_bsz=256  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
-n_resp_per_prompt=8  # Reduced for faster rollout
+n_resp_per_prompt=4  # Reduced for faster rollout
 train_prompt_mini_bsz=64  # model grad update batchsize
 
 # Algorithm
@@ -162,7 +161,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.recipe.dapo.src.main_dapo \
     actor_rollout_ref.rollout.n=${n_resp_per_prompt} \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size=${infer_micro_batch_size} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
@@ -195,7 +194,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.recipe.dapo.src.main_dapo \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \
     trainer.val_before_train=False \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=500 \
     trainer.test_freq=500 \
