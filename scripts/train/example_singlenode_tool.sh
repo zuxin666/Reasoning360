@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export OPENAI_API_KEY="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"
+export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
 
 # =================== Frequently Used Variables ===================
 RESUME_CKPT_DIR_NAME=""  # Fill in the checkpoint directory name to resume from, otherwise from scratch
