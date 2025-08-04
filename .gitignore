@@ -161,3 +161,7 @@ artifacts/
 
 # Analysis
 analysis/
+
+# env related
+360_full.yml
+360_full.txt

@@ -87,8 +87,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
                 if "multi_modal_data" in new_batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("multi_modal_data")
-                # if "raw_prompt" in new_batch.non_tensor_batch:  # Commented out by Reasoning360 as it causes mismatch in multi-domain data
-                # non_tensor_batch_keys_to_pop.append("raw_prompt")
+                # TODO: Commented out by Reasoning360 as it causes mismatch in multi-domain data
+                if "raw_prompt" in new_batch.non_tensor_batch:
+                    non_tensor_batch_keys_to_pop.append("raw_prompt")
                 if "tools_kwargs" in new_batch.non_tensor_batch:
                     non_tensor_batch_keys_to_pop.append("tools_kwargs")
                 gen_batch = new_batch.pop(

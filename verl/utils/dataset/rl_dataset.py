@@ -260,7 +260,6 @@ class RLHFDataset(Dataset):
         row_dict["position_ids"] = position_ids[0]
         row_dict["raw_prompt_ids"] = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
 
-        # encode prompts without chat template
         if self.return_raw_chat:
             row_dict["raw_prompt"] = chat.tolist()
 

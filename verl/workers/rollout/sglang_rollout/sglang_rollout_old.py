@@ -17,38 +17,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import multiprocessing as mp
 import os
 import time
 from contextlib import contextmanager
 from copy import deepcopy
 from json import JSONDecodeError
-from typing import List, Optional, Tuple
+from typing import Union
 from uuid import uuid4
 
 import numpy as np
-import sglang.srt.entrypoints.engine
 import torch
 import torch.distributed as dist
 from omegaconf import DictConfig
-from sglang.srt.managers.tokenizer_manager import (
-    ReleaseMemoryOccupationReqInput,
-    ResumeMemoryOccupationReqInput,
-    UpdateWeightsFromTensorReqInput,
-)
+from sglang.srt.entrypoints.engine import Engine
 from sglang.srt.openai_api.protocol import Tool
 from sglang.srt.sampling.sampling_params import SamplingParams
-from sglang.srt.server_args import ServerArgs
-from sglang.srt.utils import (
-    MultiprocessingSerializer,
-    assert_pkg_version,
-    get_ip,
-    get_open_port,
-    is_cuda,
-    maybe_set_triton_cache_manager,
-    set_prometheus_multiproc_dir,
-    set_ulimit,
-)
+from sglang.srt.utils import get_ip, get_open_port
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.nn.utils.rnn import pad_sequence
@@ -63,6 +47,7 @@ from verl.tools.schemas import (
     OpenAIFunctionToolCall,
 )
 from verl.utils.debug import GPUMemoryLogger
+from verl.utils.model import compute_position_id_with_mask
 from verl.utils.net_utils import is_ipv6
 from verl.utils.torch_functional import (
     get_response_mask,
@@ -85,93 +70,6 @@ except ImportError:
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-
-# patch to avoid issue https://github.com/sgl-project/sglang/issues/6723
-def _set_envs_and_config(server_args: ServerArgs):
-    # Set global environments
-    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-    os.environ["NCCL_CUMEM_ENABLE"] = "0"
-    os.environ["NCCL_NVLS_ENABLE"] = str(int(server_args.enable_nccl_nvls))
-    os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
-    os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
-    os.environ["CUDA_MODULE_LOADING"] = "AUTO"
-
-    # Set prometheus env vars
-    if server_args.enable_metrics:
-        set_prometheus_multiproc_dir()
-
-    # Set ulimit
-    set_ulimit()
-
-    # Fix triton bugs
-    if server_args.tp_size * server_args.dp_size > 1:
-        # FIXME: remove this after https://github.com/triton-lang/triton/pull/4295 is used as a dependency.
-        maybe_set_triton_cache_manager()
-
-    # Check flashinfer version
-    if server_args.attention_backend == "flashinfer":
-        assert_pkg_version(
-            "flashinfer_python",
-            "0.2.5",
-            "Please uninstall the old version and reinstall the latest version by following the instructions at https://docs.flashinfer.ai/installation.html.",
-        )
-    if is_cuda():
-        assert_pkg_version(
-            "sgl-kernel",
-            "0.1.1",
-            "Please reinstall the latest version with `pip install sgl-kernel --force-reinstall`",
-        )
-
-    # Set mp start method
-    mp.set_start_method("spawn", force=True)
-
-
-sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
-
-
-# because chatCompletion is an async method, it makes the whole ray actor be an async actor
-# which can not call loop.run_until_complete. So we need to make the engine to be an async class
-class AsyncEngine(sglang.srt.entrypoints.engine.Engine):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # default to use dummy load format, which need to reload weights in first time
-        self._need_reload = True
-
-    async def release_memory_occupation(self):
-        """Release GPU occupation temporarily."""
-        obj = ReleaseMemoryOccupationReqInput()
-        return await self.tokenizer_manager.release_memory_occupation(obj, None)
-
-    async def resume_memory_occupation(self):
-        """Resume GPU occupation."""
-
-        # because __init__ is a sync method, it can not call the async release_memory_occupation
-        # have to move release_memory_occupation from __init__ to here
-        if self._need_reload:
-            await self.release_memory_occupation()
-            self._need_reload = False
-
-        obj = ResumeMemoryOccupationReqInput()
-        return await self.tokenizer_manager.resume_memory_occupation(obj, None)
-
-    async def update_weights_from_tensor(
-        self,
-        named_tensors: List[Tuple[str, torch.Tensor]],  # noqa: UP006
-        load_format: Optional[str] = None,
-        flush_cache: bool = True,
-    ):
-        """Update weights from distributed source. If there are going to be more updates, set `flush_cache` to be false
-        to avoid duplicated cache cleaning operation."""
-        obj = UpdateWeightsFromTensorReqInput(
-            serialized_named_tensors=[MultiprocessingSerializer.serialize(named_tensors) for _ in range(self.server_args.tp_size)],
-            load_format=load_format,
-            flush_cache=flush_cache,
-        )
-        return await self.tokenizer_manager.update_weights_from_tensor(obj, None)
-
-    async def flush_cache(self):
-        return await self.tokenizer_manager.flush_cache()
 
 
 # NOTE(sgm): add for verl. We can optimize it by making
@@ -210,7 +108,7 @@ def get_tool_call_parser_type(tokenizer: PreTrainedTokenizer) -> str:
     items = FunctionCallParser.ToolCallParserEnum.items()
     for parser_type, parser_cls in items:
         parser = parser_cls()
-        if parser.bot_token.strip() in tokenizer.get_vocab() and (parser.eot_token == "" or parser.eot_token.strip() in tokenizer.get_vocab()):
+        if parser.bot_token in tokenizer.get_vocab() and (parser.eot_token == "" or parser.eot_token in tokenizer.get_vocab()):
             return parser_type
     else:
         raise ValueError(f"No tool call parser found for tokenizer {tokenizer}")
@@ -355,7 +253,7 @@ class SGLangRollout(BaseRollout):
         if first_rank_in_node:
             rank = dist.get_rank()
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            self._engine = AsyncEngine(
+            self._engine = Engine(
                 model_path=actor_module,
                 dtype=self.config.dtype,
                 mem_fraction_static=self.config.gpu_memory_utilization,
@@ -383,6 +281,9 @@ class SGLangRollout(BaseRollout):
             self._engine = None
 
         self.sharding_manager = None
+        # offload
+        if self._tp_rank == 0:
+            self._engine.release_memory_occupation()
         self.is_sleep = True
 
     def _init_sampling_params(self, **kwargs):
@@ -655,7 +556,7 @@ class SGLangRollout(BaseRollout):
                 output = None
 
             # Most naive implementation, can extract tensor and send via gloo if too slow
-            # dist.barrier()
+            dist.barrier()
             [output] = broadcast_pyobj(
                 data=[output],
                 rank=self._rank,
@@ -713,15 +614,10 @@ class SGLangRollout(BaseRollout):
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._engine.flush_cache())
+            self._engine.flush_cache()
 
         return DataProto(batch=batch, non_tensor_batch=_non_tensor_batch)
 
-    async def _semaphore_wrapped_rollout(self, sem, req, do_sample, is_validate, **kwargs):
-        async with sem:
-            return await self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
-        
     async def _async_rollout_a_request(
         self,
         req: AsyncRolloutRequest,
@@ -736,7 +632,7 @@ class SGLangRollout(BaseRollout):
 
         turn_boundaries = []
         conversation_histories = []
-        
+
         current_turns = 0
         while current_turns < self.config.multi_turn.max_turns:
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
@@ -750,34 +646,32 @@ class SGLangRollout(BaseRollout):
                             self._tool_map[tool_call.function.name].execute(
                                 _req.request_id,
                                 tool_call.function.arguments,
-                                current_turns,
                                 **_req.tools_kwargs[tool_call.function.name].get("execute_kwargs", {}),
                             )
                             for tool_call in parsed_tool_calls
                         ]
                     )
-                    _req.add_tool_response_messages(self.tokenizer, [resp for resp, _, _, _, _ in tool_call_results])
-                    overall_stop = False
-                    for tool_call, (resp, reward, route_to, arguments, metrics) in zip(parsed_tool_calls, tool_call_results):
-                        _req.update_metrics(metrics, tool_call.function.name)
+                    for i, (tool_call, (resp, reward, route_to, arguments, metrics)) in enumerate(zip(parsed_tool_calls, tool_call_results)):
                         conversation_histories[-1]["route_to"] = route_to
                         conversation_histories[-1]["content"] = arguments
                         conversation_histories[-1]["feedback"] = resp
                         conversation_histories[-1]["reward"] = reward
-                        # if is_done:
-                        #     overall_stop = True
-                    if overall_stop or len(_req.input_ids) >= self.config.max_model_len:
+                        _req.add_tool_response_message(
+                            self.tokenizer,
+                            resp,
+                            (i == len(parsed_tool_calls) - 1),
+                            format=self.config.multi_turn.format,
+                        )
+                        _req.update_metrics(metrics, tool_call.function.name)
+                        if len(_req.input_ids) >= self.config.max_model_len:
+                            break
+                    if len(_req.input_ids) >= self.config.max_model_len:
                         finish_reason_type = FinishReasonTypeEnum.STOP
                         break
                     _req.state = AsyncRolloutRequestStateEnum.RUNNING
                 else:
                     raise ValueError(f"Unexpected tool calling last message state: {_req.messages[-1]}")
             elif _req.state == AsyncRolloutRequestStateEnum.RUNNING:
-                # Only continue the conversation if the prompt length is not greater than max_model_len - 1,
-                # since SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
-                if len(_req.get_generation_prompt_ids(self.tokenizer)) + 1 >= self.config.max_model_len:
-                    finish_reason_type = FinishReasonTypeEnum.LENGTH
-                    break
                 turn_boundaries.append(len(_req.input_ids))
                 conversation_histories.append({
                     "route_to": "",
@@ -796,7 +690,12 @@ class SGLangRollout(BaseRollout):
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
-                    _req.add_assistant_message(self.tokenizer, content)
+                    _req.add_assistant_message(
+                        self.tokenizer,
+                        content,
+                        already_over_long=True,
+                        format=self.config.multi_turn.format,
+                    )
                     break
                 else:
                     if self._function_call_parser and self._function_call_parser.has_tool_call(content):
@@ -828,14 +727,27 @@ class SGLangRollout(BaseRollout):
                                 )
                             )
                         if len(parsed_tool_calls) > 0:
-                            _req.add_assistant_message(self.tokenizer, normed_content, tool_calls=parsed_tool_calls)
+                            _req.add_assistant_message(
+                                self.tokenizer,
+                                normed_content,
+                                tool_calls=parsed_tool_calls,
+                                format=self.config.multi_turn.format,
+                            )
                         else:
-                            _req.add_assistant_message(self.tokenizer, content)
+                            _req.add_assistant_message(
+                                self.tokenizer,
+                                content,
+                                format=self.config.multi_turn.format,
+                            )
                             finish_reason_type = FinishReasonTypeEnum.STOP
                             _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
                     else:
-                        _req.add_assistant_message(self.tokenizer, content)
+                        _req.add_assistant_message(
+                            self.tokenizer,
+                            content,
+                            format=self.config.multi_turn.format,
+                        )
                         # TODO: let the self-generated reasoning to continue instead of breaking here
                         # break
 
@@ -858,10 +770,8 @@ class SGLangRollout(BaseRollout):
 
         return _req
 
-    async def _handle_engine_call(self, _req: AsyncRolloutRequest, do_sample: bool, is_validate: bool, override_n: bool = True, **kwargs) -> dict:
-        generation_prompt_ids = _req.get_generation_prompt_ids(self.tokenizer)
-        # Adjust max_new_tokens to ensure it is not greater than max_model_len - 1
-        # SGLang raises an error when max_new_tokens + 1 is greater to max_model_len (the extra token accounts for the EOS token).
+    async def _handle_engine_call(self, _req: AsyncRolloutRequest, do_sample: bool, is_validate: bool, **kwargs) -> dict:
+        generation_prompt_ids = _req.get_generation_prompt(self.tokenizer)
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
         if not do_sample:
             kwargs = dict(
@@ -895,7 +805,7 @@ class SGLangRollout(BaseRollout):
                 "n": 1,
             }
         kwargs["max_new_tokens"] = max_new_tokens
-        if "n" not in kwargs or (kwargs["n"] > 1 and override_n):  # group size is supported in preprocess
+        if "n" not in kwargs or kwargs["n"] > 1:  # group size is supported in preprocess
             kwargs["n"] = 1
         # users can customize different sampling_params at different run
         with self.update_sampling_params(**kwargs):
@@ -907,13 +817,11 @@ class SGLangRollout(BaseRollout):
         return output
 
     async def _handle_pending_state(self, _req: AsyncRolloutRequest) -> AsyncRolloutRequest:
-        if _req.tool_schemas is not None:
+        if _req.tools is not None:
             tool_creation_coroutines = []
-            for tool_schema in _req.tool_schemas:
+            for tool_schema in _req.tools:
                 tool = self._tool_map[tool_schema.function.name]
                 create_kwargs = _req.tools_kwargs[tool.name].get("create_kwargs", {})
-                create_kwargs["max_turns"] = self.config["multi_turn"]["max_turns"]
-                create_kwargs["model_name"] = self.config["multi_turn"]["model_name"]
                 tool_creation_coroutines.append(tool.create(_req.request_id, **create_kwargs))
             await asyncio.gather(*tool_creation_coroutines)
 
@@ -926,7 +834,7 @@ class SGLangRollout(BaseRollout):
             stacklevel=2,
         )
         return self._req_level_generate_sequences(prompts, **kwargs)
-    
+
     @GPUMemoryLogger(role="sglang rollout", logger=logger)
     @torch.no_grad()
     def _req_level_generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
@@ -934,51 +842,22 @@ class SGLangRollout(BaseRollout):
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
         tgt_device = prompts.batch["input_ids"].device
-
-        sorted_output_req_list = None
-
-        try:
-            if self._tp_rank == 0:
-
-                print(f"[Rank {self._tp_rank}, {self._rank}] Starting async rollout with prompts, number: {len(prompts)}")
-
-                req_list = self._preprocess_prompt_to_async_rollout_requests(
-                    prompts,
-                    n=1 if is_validate else self.config.n,
+        if self._tp_rank == 0:
+            req_list = self._preprocess_prompt_to_async_rollout_requests(
+                prompts,
+                n=1 if is_validate else self.config.n,
+            )
+            loop = asyncio.get_event_loop()
+            output_req_list = loop.run_until_complete(
+                asyncio.gather(
+                    *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
                 )
-
-                print(f"[Rank {self._rank}] Preprocessed {len(req_list)} requests for async rollout")
-
-                sem = asyncio.Semaphore(256)  # Limit the concurrency of async requests
-                loop = asyncio.get_event_loop()
-                output_req_list = loop.run_until_complete(
-                    asyncio.gather(
-                        *[
-                            self._semaphore_wrapped_rollout(sem, req, do_sample, is_validate, **kwargs)
-                            for req in req_list
-                        ]
-                    )
-                )
-                
-                # loop = asyncio.get_event_loop()
-                # output_req_list = loop.run_until_complete(
-                #     asyncio.gather(
-                #         *[
-                #             self._async_rollout_a_request(req, do_sample, is_validate, **kwargs)
-                #             for req in req_list
-                #         ],
-                #     )
-                # )
-                sorted_output_req_list = sorted(
-                    output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset)
-                )
-        
-        except Exception as e:
-            logger.exception(f"[Rank {self._rank}] Rollout failed: {e}")
-            # Avoid hard crash, allow barrier to complete
+            )
+            sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
+        else:
             sorted_output_req_list = None
 
-        # dist.barrier()
+        dist.barrier()
         [sorted_output_req_list] = broadcast_pyobj(
             data=[sorted_output_req_list],
             rank=self._rank,
@@ -992,9 +871,9 @@ class SGLangRollout(BaseRollout):
         prompt_position_ids, response_position_ids = [], []
         prompt_loss_mask, response_loss_mask = [], []
         messages = []
-        conversation_histories = []  # Add conversation histories for new algorithm
         reward_scores = []
-        turn_boundaries_list = []
+        turn_boundaries = []
+        conversation_histories = []
         for req in sorted_output_req_list:
             assert req.state == AsyncRolloutRequestStateEnum.COMPLETED, f"Request {req.request_id} is not completed"
             assert len(req.input_ids) == len(req.attention_mask) == len(req.position_ids) == len(req.loss_mask), f"""Request {req.request_id} has different length of 
@@ -1025,10 +904,9 @@ class SGLangRollout(BaseRollout):
             prompt_loss_mask.append(torch.tensor(req.prompt_loss_mask, dtype=torch.int, device=tgt_device))
             response_loss_mask.append(torch.tensor(req.response_loss_mask, dtype=torch.int, device=tgt_device))
             messages.append({"messages": req.messages})
-            conversation_histories.append(req.conversation_histories)
             reward_scores.append(req.reward_scores)
+            conversation_histories.append(req.conversation_histories)
 
-            # Convert turn boundaries to tensor format - FIXED: relative to response length
             response_length = len(req.response_ids)
             turn_boundary_tensor = torch.zeros(response_length, dtype=torch.int, device=tgt_device)
             if hasattr(req, 'turn_boundaries') and req.turn_boundaries:
@@ -1041,7 +919,7 @@ class SGLangRollout(BaseRollout):
                         turn_boundary_tensor[response_pos] = 1
                 # Ensure first turn always starts at position 0 if no boundary set
                 assert turn_boundary_tensor[0] == 1, f"First turn boundary should be at position 0, but got {turn_boundary_tensor[0]}"
-            turn_boundaries_list.append(turn_boundary_tensor)
+            turn_boundaries.append(turn_boundary_tensor)
 
         prompt_ids = pad_sequence(
             prompt_ids,
@@ -1080,10 +958,10 @@ class SGLangRollout(BaseRollout):
             response_loss_mask = pad_sequence_to_length(response_loss_mask, self.config.response_length, 0)
 
         # Pad turn boundaries to match response sequence length only
-        turn_boundaries = pad_sequence(turn_boundaries_list, batch_first=True, padding_value=0)
+        turn_boundaries = pad_sequence(turn_boundaries, batch_first=True, padding_value=0)
         if turn_boundaries.shape[1] < self.config.response_length:
             turn_boundaries = pad_sequence_to_length(turn_boundaries, self.config.response_length, 0)
-
+        
         input_ids = torch.cat((prompt_ids, response_ids), dim=-1)
         attention_mask = torch.cat((prompt_attention_mask, response_attention_mask), dim=-1)
         position_ids = torch.cat((prompt_position_ids, response_position_ids), dim=-1)
@@ -1105,15 +983,14 @@ class SGLangRollout(BaseRollout):
 
         # free cache engine
         if self.config.free_cache_engine and self._engine is not None and self._tp_rank == 0:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._engine.flush_cache()) 
+            self._engine.flush_cache()
 
         return DataProto(
             batch=batch,
             non_tensor_batch={
                 "messages": np.array(messages),
-                "conversation_histories": np.array([[x] for x in conversation_histories], dtype=object), # np.array(conversation_histories, dtype=object),
                 "reward_scores": np.array(reward_scores),
+                "conversation_histories": np.array([[x] for x in conversation_histories], dtype=object), # np.array(conversation_histories, dtype=object),
             },
         )
 
@@ -1130,42 +1007,67 @@ class SGLangRollout(BaseRollout):
                         "route_to_gpt4o-mini": {},
                         "route_to_user": {},
                     }
-                    _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
-                    _input_ids = None
-                    _attention_mask = None
-                    
-                    # Pass max_turns to tool creation (environment will be created in tool.create())
-                    for tool_name in _tools_kwargs.keys():
-                        if "create_kwargs" not in _tools_kwargs[tool_name]:
-                            _tools_kwargs[tool_name]["create_kwargs"] = {}
-                        _tools_kwargs[tool_name]["create_kwargs"]["max_turns"] = self.config["multi_turn"]["max_turns"]
+                    _tool_schemas = []
+                    for k in _tools_kwargs.keys():
+                        _tool_schemas.append(self._tool_map[k].get_openai_tool_schema())
+                    prompt_with_chat_template = self.tokenizer.apply_chat_template(
+                        conversation=raw_prompt,
+                        tools=[tool.model_dump() for tool in _tool_schemas],
+                        add_generation_prompt=True,
+                        tokenize=False,
+                        return_tensors="pt",
+                    )
+                    input_data = self.tokenizer(
+                        prompt_with_chat_template,
+                        return_tensors="pt",
+                        add_special_tokens=False,
+                    )
+                    _input_ids = input_data["input_ids"][0].tolist()
+                    _attention_mask = input_data["attention_mask"][0].tolist()
+                    _position_ids = compute_position_id_with_mask(input_data["attention_mask"][0]).tolist()
+                    if len(_input_ids) > self.config.prompt_length:
+                        logger.warning(
+                            "Prompt {} has length {} greater than max_prompt_len {}",
+                            data_idx,
+                            len(_input_ids),
+                            self.config.prompt_length,
+                        )
+                        _input_ids = _input_ids[: self.config.prompt_length]
+                        _attention_mask = _attention_mask[: self.config.prompt_length]
+                        _position_ids = _position_ids[: self.config.prompt_length]
                 else:
                     _input_ids = _pre_process_inputs(self.pad_token_id, prompts.batch["input_ids"][data_idx])
                     _attention_mask = _pre_process_inputs(0, prompts.batch["attention_mask"][data_idx])
+                    _position_ids = compute_position_id_with_mask(torch.tensor(_attention_mask)).tolist()
+                    _tool_schemas = []
                     _tools_kwargs = {}
-                    _tool_schemas = None
 
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
                     rollout_offset=rollout_offset,
                     request_id=str(uuid4()),
                     state=AsyncRolloutRequestStateEnum.PENDING,
-                    messages=raw_prompt.tolist(),
-                    tool_schemas=_tool_schemas,
+                    messages=[Message.model_validate(msg) for msg in raw_prompt],
+                    tools=_tool_schemas,
                     tools_kwargs=_tools_kwargs,
                     input_ids=_input_ids,
+                    prompt_ids=_input_ids,
                     response_ids=[],
                     attention_mask=_attention_mask,
+                    prompt_attention_mask=_attention_mask,
                     response_attention_mask=[],
+                    position_ids=_position_ids,
+                    prompt_position_ids=_position_ids,
                     response_position_ids=[],
+                    loss_mask=[0] * len(_input_ids),
+                    prompt_loss_mask=[0] * len(_input_ids),
                     response_loss_mask=[],
                     reward_scores={},
-                    max_prompt_len=self.config.prompt_length,
                     max_response_len=self.config.response_length,
-                    max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
-                    use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
-                    enable_tokenization_sanity_check=self.config.multi_turn.enable_tokenization_sanity_check,
-                    tokenizer=self.tokenizer,
+                    max_model_len=min(
+                        self.config.max_model_len,
+                        self.config.prompt_length + self.config.response_length,
+                    ),
                 )
 
                 error_message = f"Request {req.request_id} has mismatched lengths: input_ids={len(req.input_ids)}, attention_mask={len(req.attention_mask)}, position_ids={len(req.position_ids)}, loss_mask={len(req.loss_mask)}"
@@ -1175,80 +1077,85 @@ class SGLangRollout(BaseRollout):
 
         return req_list
 
-    async def chat_completion(self, json_request):
-        assert self._tp_rank == 0, "only called in tp rank 0"
-        _input_ids = []
-        _attention_mask = []
-        _position_ids = []
-        _tool_schemas = []
-        _tools_kwargs = {}
+    def execute_method(self, method: Union[str, bytes], *args, **kwargs):
+        if method == "chat_completion":
+            json_request = args[0]
 
-        req = AsyncRolloutRequest(
-            request_id=str(uuid4()),
-            state=AsyncRolloutRequestStateEnum.PENDING,
-            messages=[Message.model_validate(msg) for msg in json_request["messages"]],
-            tools=_tool_schemas,
-            tools_kwargs=_tools_kwargs,
-            input_ids=_input_ids,
-            prompt_ids=_input_ids,
-            response_ids=[],
-            attention_mask=_attention_mask,
-            prompt_attention_mask=_attention_mask,
-            response_attention_mask=[],
-            position_ids=_position_ids,
-            prompt_position_ids=_position_ids,
-            response_position_ids=[],
-            loss_mask=[0] * len(_input_ids),
-            prompt_loss_mask=[0] * len(_input_ids),
-            response_loss_mask=[],
-            reward_scores={},
-            max_response_len=self.config.response_length,
-            max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
-        )
+            formatted_messages = []
+            for msg in json_request["messages"]:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                formatted_messages.append(f"{role}: {content}")
+            prompt_str = "\n".join(formatted_messages)
 
-        # json_request already contains sampling_params
-        output = await self._handle_engine_call(req, True, False, False, **json_request)
-        # it can be Dict or AsyncIterator[Dict]
-        if isinstance(output, dict):
-            outputs = [output]
-        else:
-            outputs = output
+            sampling_params_dict = {
+                "n": json_request.get("n", 1),
+                "max_new_tokens": json_request.get("max_completion_tokens", self.config.response_length),
+                "temperature": json_request.get("temperature", 1.0),
+                "top_p": json_request.get("top_p", 1.0),
+            }
+            output = None
+            if self._tp_rank == 0:
+                loop = asyncio.get_event_loop()
+                output = loop.run_until_complete(
+                    self._engine.async_generate(
+                        prompt=prompt_str,
+                        sampling_params=sampling_params_dict,
+                        return_logprob=True,
+                    )
+                )
 
-        # build openai chat completion format
-        choices = []
-        id = None
-        for i, content in enumerate(outputs):
-            choices.append(
-                {
-                    "index": i,
-                    "message": {
-                        "role": "assistant",
-                        "content": content["text"],
-                    },
-                    "finish_reason": content["meta_info"]["finish_reason"]["type"],
-                }
+            dist.barrier()
+            output = broadcast_pyobj(
+                data=[output],
+                rank=self._rank,
+                dist_group=self._device_mesh_cpu["tp"].get_group(),
+                src=self._device_mesh_cpu["tp"].mesh[0].item(),
+                force_cpu_device=False,
             )
-            id = content["meta_info"]["id"]
 
-        return {
-            "id": "chatcmpl-" + id,
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": json_request.get("model", "sglang_model"),
-            "choices": choices,
-        }
+            # only return value from master rank
+            if self._tp_rank != 0:
+                return None
+            # build openai chat completion format
+            choices = []
+            id = None
+            for i, content in enumerate(output):
+                choices.append(
+                    {
+                        "index": i,
+                        "message": {
+                            "role": "assistant",
+                            "content": content["text"],
+                        },
+                        "finish_reason": content["meta_info"]["finish_reason"]["type"],
+                    }
+                )
+                id = content["meta_info"]["id"]
+
+            return {
+                "id": "chatcmpl-" + id,
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": json_request.get("model", "sglang_model"),
+                "choices": choices,
+            }
+        else:
+            raise ValueError(f"not supported method : {method}")
 
         # this function is left for uniform train-inference resharding
 
-    async def wake_up(self):
+    def resume(self):
         if not self.is_sleep:
             return
-        await self.sharding_manager.wake_up()  # pylint: disable=C2801
+        self.sharding_manager.__enter__()  # pylint: disable=C2801
+
         self.is_sleep = False
 
     # this function is left for uniform train-inference resharding
-    async def sleep(self):
+    def offload(self):
         if self.is_sleep:
             return
-        await self.sharding_manager.sleep()
+
+        self.sharding_manager.__exit__(None, None, None)
         self.is_sleep = True

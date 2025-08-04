@@ -52,18 +52,18 @@ fi
 
 export WANDB_DISABLED=true
 
-# =================== Ray start ===================
-# ray stop at all nodes
-echo "Stopping any existing Ray cluster…"
-ray stop || true
-rm -rf /tmp/ray/ray_current_cluster
+# # =================== Ray start ===================
+# # ray stop at all nodes
+# echo "Stopping any existing Ray cluster…"
+# ray stop || true
+# rm -rf /tmp/ray/ray_current_cluster
 
-echo "Starting Ray head at ${address_head}…"
+echo "Starting Ray head at ${address_head} ..."
 # Start Ray head node  
 ray start --head --node-ip-address="$head_node_ip" --port=$port \
     --include-dashboard=False --block &
     
-sleep 10
+sleep 5
 
 # =================== RL Config ===================
 # Note, we borrowed the config format from DAPO while here disabled all DAPO features to run the naive RL baseline.
@@ -79,7 +79,7 @@ clip_ratio_low=0.2
 clip_ratio_high=0.2
 
 max_prompt_length=$((1024 * 4))
-max_response_length=$((1024 * 4))
+max_response_length=$((1024 * 8))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
@@ -109,6 +109,10 @@ actor_ppo_max_token_len=$(( (max_prompt_length + max_response_length)))  # incre
 infer_ppo_max_token_len=$(( (max_prompt_length + max_response_length)))  # increase this to speed up modelforward, but note memory overflow
 offload=True
 
+# Tool Config
+tool_config_path="./examples/sglang_multiturn/config/tool_config/router_tool_config.yaml"
+max_turns=10
+
 # =================== Start RL training ===================
 PYTHONUNBUFFERED=1 python3 -m verl.recipe.dapo.src.main_dapo \
     algorithm.adv_estimator=${adv_estimator} \
@@ -121,6 +125,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.recipe.dapo.src.main_dapo \
     data.val_files="$test_files" \
     data.prompt_key=prompt \
     data.truncation='right' \
+    data.return_raw_chat=True \
     data.max_prompt_length=${max_prompt_length} \
     data.max_response_length=${max_response_length} \
     data.train_batch_size=${train_prompt_bsz} \
@@ -171,7 +176,11 @@ PYTHONUNBUFFERED=1 python3 -m verl.recipe.dapo.src.main_dapo \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.rollout.multi_turn.enable=False \
+    actor_rollout_ref.rollout.multi_turn.enable=True \
+    actor_rollout_ref.rollout.multi_turn.format=qwen \
+    actor_rollout_ref.rollout.multi_turn.max_turns=${max_turns} \
+    actor_rollout_ref.rollout.multi_turn.tool_config_path=${tool_config_path} \
+    actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.mode=sync \
     +actor_rollout_ref.model.override_config.attention_dropout=0. \
     +actor_rollout_ref.model.override_config.embd_pdrop=0. \

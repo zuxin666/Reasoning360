@@ -18,5 +18,9 @@ echo "Detected NODE_IP = $NODE_IP"
 export STEM_LLM_JUDGE_URL="http://${NODE_IP}:8000"
 echo "STEM_LLM_JUDGE_URL=$STEM_LLM_JUDGE_URL"
 
-# (3) launch the vLLM server bound to that IP
-vllm serve TIGER-Lab/general-verifier --host "$NODE_IP" --data-parallel-size 8
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+vllm serve TIGER-Lab/general-verifier \
+   --host "$NODE_IP" \
+   --gpu-memory-utilization 0.1 \
+   --data-parallel-size 8

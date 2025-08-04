@@ -226,9 +226,14 @@ class AsyncDAPORewardManager:
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
             data_sources.append(data_source)
-            solutions.append(response_str)
+            # solutions.append(response_str)
             ground_truths.append(ground_truth)
             extra_infos.append(extra_info)
+
+            # TODO: Directly use the last turn in the conversation as the response
+            conversation_histories = data_item.non_tensor_batch["conversation_histories"][0]
+            last_turn_content = conversation_histories[-1]["content"]
+            solutions.append(last_turn_content)
 
         # Run parallel score computation
         try:
