@@ -704,7 +704,14 @@ class DataProto:
 
         non_tensor_batch = list_of_dict_to_dict_of_list(list_of_dict=[d.non_tensor_batch for d in data])
         for key, val in non_tensor_batch.items():
-            non_tensor_batch[key] = np.concatenate(val, axis=0)
+            try:
+                non_tensor_batch[key] = np.concatenate(val, axis=0)
+            except ValueError as e:
+                print(f"Error concatenating {key}: {e}")
+                print(f"Value of {key}: {val}")
+                print(f"Type of {key}: {type(val)}")
+                print(f"Shape of {key}: {val.shape}")
+                raise e
 
         cls = type(data[0]) if len(data) > 0 else DataProto
         return cls(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)

@@ -53,10 +53,10 @@ fi
 export WANDB_DISABLED=true
 
 # # =================== Ray start ===================
-# # ray stop at all nodes
-# echo "Stopping any existing Ray cluster…"
-# ray stop || true
-# rm -rf /tmp/ray/ray_current_cluster
+# ray stop at all nodes
+echo "Stopping any existing Ray cluster…"
+ray stop || true
+rm -rf /tmp/ray/ray_current_cluster
 
 echo "Starting Ray head at ${address_head} ..."
 # Start Ray head node  

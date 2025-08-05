@@ -770,7 +770,7 @@ class SGLangRollout(BaseRollout):
                         break
 
                     _req.state = AsyncRolloutRequestStateEnum.RUNNING
-                    
+
                     # Print the content of tool calling
                     print(f"uid: {_req.request_id} [turn: {current_turns}, route_to: {route_to}]\ncontent: {arguments}\nresponse: {resp}")
 
@@ -1137,7 +1137,7 @@ class SGLangRollout(BaseRollout):
             batch=batch,
             non_tensor_batch={
                 "messages": np.array(messages),
-                "conversation_histories": np.array([[x] for x in conversation_histories], dtype=object), # np.array(conversation_histories, dtype=object),
+                "conversation_histories": np.array([[x] for x in conversation_histories], dtype=object) if conversation_histories else np.array([[]], dtype=object),
                 "reward_scores": np.array(reward_scores),
             },
         )
